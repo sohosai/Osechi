@@ -114,7 +114,10 @@ impl MultiViewRenderer {
         if view_index < self.frame_cache.len() {
             // フレーム解像度の妥当性チェック（0より大きく、32ビット符号なし整数の範囲内）
             if frame.width == 0 || frame.height == 0 {
-                eprintln!("ERROR: Camera frame has invalid resolution: {}x{}", frame.width, frame.height);
+                eprintln!(
+                    "ERROR: Camera frame has invalid resolution: {}x{}",
+                    frame.width, frame.height
+                );
                 return;
             }
             // フレームサイズチェック（RGB形式: width*height*3）
