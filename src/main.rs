@@ -629,10 +629,10 @@ impl eframe::App for CameraApp {
                         painter.layout_no_wrap(label_text.to_string(), font_id, text_color);
 
                     let text_size = galley.size();
-                    // 中央下部に配置。下からすこし(4px)だけ浮かせる
+                    // 中央下部に配置。枠線から離して少し上(8px)に浮かせる
                     let text_pos = egui::pos2(
                         rect.center().x - text_size.x / 2.0,
-                        rect.max.y - text_size.y - 4.0,
+                        rect.max.y - text_size.y - 8.0,
                     );
 
                     // 背景の矩形をテキストより少し大きめに描画（パディング2px）
@@ -658,7 +658,9 @@ impl eframe::App for CameraApp {
                     let total_width = radius * 2.0 + circle_padding + text_size.x;
 
                     // コンテンツ全体の左上の位置
-                    let content_pos = egui::pos2(rect.max.x - total_width - 8.0, rect.min.y + 8.0);
+                    // 右と上から12px分の余白を取り、枠線や角丸と被りにくくする
+                    let content_pos =
+                        egui::pos2(rect.max.x - total_width - 12.0, rect.min.y + 12.0);
 
                     // 黒の半透明背景を敷いて視認性を上げる
                     let bg_rect = egui::Rect::from_min_size(

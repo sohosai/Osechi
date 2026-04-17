@@ -3,6 +3,21 @@
 version = 4
 
 [[package]]
+name = "Oseti"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "eframe",
+ "image",
+ "mp4",
+ "nokhwa",
+ "num_cpus",
+ "openh264",
+ "rayon",
+ "rfd",
+]
+
+[[package]]
 name = "ab_glyph"
 version = "0.2.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2942,21 +2957,6 @@ checksum = "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50"
 dependencies = [
  "futures-core",
  "pin-project-lite",
-]
-
-[[package]]
-name = "oseti-beta"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "eframe",
- "image",
- "mp4",
- "nokhwa",
- "num_cpus",
- "openh264",
- "rayon",
- "rfd",
 ]
 
 [[package]]
