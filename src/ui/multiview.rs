@@ -1,5 +1,5 @@
 use crate::app::OsechiApp;
-use crate::source::video::traits::VideoSourceId;
+use crate::source::video::SourceId;
 use eframe::egui;
 
 impl OsechiApp {
@@ -24,7 +24,7 @@ impl OsechiApp {
             );
             painter.rect_filled(bg_rect, 0.0, egui::Color32::BLACK);
 
-            let draw_cam = |source_id: Option<VideoSourceId>,
+            let draw_cam = |source_id: Option<SourceId>,
                             rect: egui::Rect,
                             label_text: &str,
                             border_override: Option<egui::Color32>| {

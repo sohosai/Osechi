@@ -1,5 +1,3 @@
-pub mod impls;
-
 use std::sync::mpsc;
 use std::thread;
 
@@ -8,10 +6,9 @@ use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
 
 use crate::error::AppError;
-use crate::source::video::traits::FrameData;
+use crate::source::video::{FrameData, Stream};
 
 /// WEBカメラのアクティブなストリーム。
-///
 /// バックグラウンドスレッドでカメラからフレームを取得し、
 /// チャネル経由でメインスレッドに送信する。
 pub struct WebCameraStream {
@@ -25,7 +22,6 @@ impl WebCameraStream {
     }
 
     /// カメラのストリームを開始する。
-    ///
     /// バックグラウンドスレッドを起動し、フレームのキャプチャを開始する。
     pub fn open_stream(&mut self) -> Result<(), AppError> {
         let (tx, rx) = mpsc::sync_channel(2);
@@ -85,5 +81,22 @@ impl WebCameraStream {
 
         self.rx = Some(rx);
         Ok(())
+    }
+}
+
+impl Stream for WebCameraStream {
+    fn get_frame(&mut self) -> Result<Option<FrameData>, AppError> {
+        if self.rx.is_none() {
+            self.open_stream()?;
+        }
+
+        match self.rx.as_mut().unwrap().try_recv() {
+            Ok(Ok(frame)) => Ok(Some(frame)),
+            Ok(Err(e)) => Err(e),
+            Err(std::sync::mpsc::TryRecvError::Empty) => Ok(None),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Err(AppError::Other("Camera stream disconnected".to_string()))
+            }
+        }
     }
 }

@@ -1,8 +1,8 @@
-use crate::source::video::traits::{VideoSourceDescriptor, VideoSourceId};
+use crate::source::video::{Descriptor, SourceId};
 use eframe::egui;
 
 /// 指定されたIDのソース名を取得する
-pub fn get_source_name(id: &VideoSourceId, sources: &[VideoSourceDescriptor]) -> String {
+pub fn get_source_name(id: &SourceId, sources: &[Descriptor]) -> String {
     sources
         .iter()
         .find(|d| d.id == *id)
@@ -14,8 +14,8 @@ pub fn get_source_name(id: &VideoSourceId, sources: &[VideoSourceDescriptor]) ->
 pub fn draw_source_combo_box(
     ui: &mut egui::Ui,
     id_salt: &str,
-    current_id: &mut Option<VideoSourceId>,
-    sources: &[VideoSourceDescriptor],
+    current_id: &mut Option<SourceId>,
+    sources: &[Descriptor],
 ) {
     let selected_text = current_id
         .as_ref()
@@ -46,8 +46,8 @@ pub fn draw_source_combo_box(
 pub fn draw_source_radio_menu(
     ui: &mut egui::Ui,
     title: &str,
-    current_id: &mut Option<VideoSourceId>,
-    sources: &[VideoSourceDescriptor],
+    current_id: &mut Option<SourceId>,
+    sources: &[Descriptor],
 ) {
     ui.menu_button(title, |ui| {
         let mut is_none = current_id.is_none();

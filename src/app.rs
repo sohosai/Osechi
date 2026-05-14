@@ -1,8 +1,8 @@
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 
-use crate::source::VideoSourceManager;
-use crate::source::video::traits::{VideoSourceId, VideoStream};
+use crate::source::video;
+use crate::source::video::{SourceId, Stream};
 
 pub const INITIAL_WIDTH: usize = 1280;
 pub const INITIAL_HEIGHT: usize = 720;
@@ -16,18 +16,18 @@ pub struct CameraTexture {
 
 /// アクティブなカメラの状態（ストリームとテクスチャをカプセル化）
 pub struct ActiveSource {
-    pub stream: Option<Box<dyn VideoStream>>,
+    pub stream: Option<Box<dyn Stream>>,
     pub texture: Option<CameraTexture>,
     pub last_error: Option<String>,
 }
 
 ///　アプリ全体のステート
 pub struct OsechiApp {
-    pub video_source_manager: VideoSourceManager,
-    pub inputs: [Option<VideoSourceId>; 8],
-    pub active_sources: HashMap<VideoSourceId, ActiveSource>,
-    pub selected_source_id: Option<VideoSourceId>,
-    pub preview_source_id: Option<VideoSourceId>,
+    pub video_source_manager: video::manager::SourceManager,
+    pub inputs: [Option<SourceId>; 8],
+    pub active_sources: HashMap<SourceId, ActiveSource>,
+    pub selected_source_id: Option<SourceId>,
+    pub preview_source_id: Option<SourceId>,
     pub show_input_settings: bool,
     pub show_labels: bool,
 }
@@ -37,7 +37,7 @@ impl OsechiApp {
     pub fn new(_ctx: &egui::Context) -> Self {
         nokhwa::nokhwa_initialize(|_| {});
 
-        let video_source_manager = VideoSourceManager::new();
+        let video_source_manager = video::manager::SourceManager::new();
         let inputs = [None, None, None, None, None, None, None, None];
 
         Self {
