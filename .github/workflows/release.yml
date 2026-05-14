@@ -25,7 +25,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install cargo-edit
-        uses: taiki-e/install-action@cargo-edit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-edit
 
       - name: Bump Version
         id: bump
