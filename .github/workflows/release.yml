@@ -1,71 +1,87 @@
-name: Build and Release
+name: Release Build
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "バージョンの更新桁 (major, minor, patch)"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-
+  bump-version:
+    name: Bump Version
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Install cargo-edit
+        uses: taiki-e/install-action@cargo-edit
+
+      - name: Bump Version
+        id: bump
+        run: |
+          cargo set-version --bump ${{ inputs.bump }}
+          NEW_VERSION=$(cargo pkgid | awk -F# '{print $2}' | awk -F: '{print $2}')
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Commit and Push
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: bump version to v${{ steps.bump.outputs.new_version }}"
+          git tag "v${{ steps.bump.outputs.new_version }}"
+          git push origin HEAD --tags
+
+  release-build:
+    name: Build Release (${{ matrix.os }})
+    needs: bump-version
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        include:
+          - os: ubuntu-latest
+            artifact_name: Osechi-Linux
+            bin_path: target/release/Osechi
+          - os: windows-latest
+            artifact_name: Osechi-Windows
+            bin_path: target/release/Osechi.exe
+          - os: macos-latest
+            artifact_name: Osechi-macOS
+            bin_path: target/release/Osechi
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }} # バージョン更新後の最新コミットを取得するためにブランチ名を指定
+
+      - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Cargo
+      - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-
-      - name: Install Linux Dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libx11-dev libxcursor-dev libxi-dev libxrandr-dev libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libv4l-dev
 
       - name: Build Release
         run: cargo build --release
 
-      - name: Rename Binary (Unix)
-        if: runner.os != 'Windows'
-        run: mv target/release/Osechi target/release/Osechi-${{ matrix.os }}
-
-      - name: Rename Binary (Windows)
-        if: runner.os == 'Windows'
-        run: mv target/release/Osechi.exe target/release/Osechi-${{ matrix.os }}.exe
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: osechi-${{ matrix.os }}
-          path: target/release/Osechi-*
-
-  release:
-    name: Create Release
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          name: Release ${{ github.ref_name }}
-          files: artifacts/Osechi-*
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.bin_path }}

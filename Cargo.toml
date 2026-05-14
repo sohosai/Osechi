@@ -13,3 +13,21 @@ chrono = "0.4.44"
 openh264 = "0.9.3"
 mp4 = "0.14.0"
 image = "0.25.10"
+
+[dev-dependencies.cargo-husky]
+version = "1"
+default-features = false
+features = ["run-cargo-test", "run-cargo-clippy","run-cargo-fmt","run-cargo-check"]
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 'z'
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
