@@ -35,7 +35,7 @@ jobs:
         id: bump
         run: |
           cargo set-version --bump ${{ inputs.bump }}
-          NEW_VERSION=$(cargo pkgid | awk -F# '{print $2}' | awk -F: '{print $2}')
+          NEW_VERSION=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Commit and Push
