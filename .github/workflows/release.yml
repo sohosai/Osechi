@@ -20,6 +20,8 @@ jobs:
   bump-version:
     name: Bump Version
     runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -58,12 +60,15 @@ jobs:
           - os: ubuntu-latest
             artifact_name: Osechi-Linux
             bin_path: target/release/Osechi
+            release_name: Osechi-Linux
           - os: windows-latest
             artifact_name: Osechi-Windows
             bin_path: target/release/Osechi.exe
+            release_name: Osechi-Windows.exe
           - os: macos-latest
             artifact_name: Osechi-macOS
             bin_path: target/release/Osechi
+            release_name: Osechi-macOS
 
     runs-on: ${{ matrix.os }}
 
@@ -82,8 +87,32 @@ jobs:
       - name: Build Release
         run: cargo build --release
 
+      - name: Rename Binary
+        shell: bash
+        run: mv ${{ matrix.bin_path }} ${{ matrix.release_name }}
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.bin_path }}
+          path: ${{ matrix.release_name }}
+
+  create-release:
+    name: Create GitHub Release
+    needs: [bump-version, release-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.bump-version.outputs.new_version }}
+          generate_release_notes: true
+          files: |
+            artifacts/Osechi-Linux/Osechi-Linux
+            artifacts/Osechi-Windows/Osechi-Windows.exe
+            artifacts/Osechi-macOS/Osechi-macOS
