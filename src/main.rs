@@ -1,30 +1,10 @@
-//! Oseti Beta - マルチビューカメラスイッチャー
-//!
-//! 複数のカメラ入力を受け付け、柔軟なグリッドレイアウトでマルチビュー出力する
-//! OBS風のリアルタイムカメラアプリケーション。
-//!
-//! # 機能
-//!
-//! - **自動レイアウト**: カメラ数に応じた自動レイアウト選択
-//! - **アスペクト比保持**: 1920×1080前提、異なる解像度は16:9でクロップ
-//! - **OBS風UI**: 上段プレビュー＆プログラム、下段マルチビュー＆コントロール
-//!
-//! # アーキテクチャ
-//!
-//! - `source`: 映像ソース（カメラ等）のライフサイクル管理
-//! - `layout`: マルチビューレイアウト設定（自動選択対応）
-//! - `renderer`: グリッドレイアウトでのレンダリング（アスペクト比対応）
-
-mod layout;
-mod recorder;
+mod error;
 mod source;
 
 use eframe::egui;
-use layout::{LayoutConfig, LayoutType};
-use recorder::{RecorderManager, RecordingTarget};
-use source::{SourceId, SourceManager};
+use source::SourceManager;
+use source::video::traits::VideoSourceId;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 const INITIAL_WIDTH: usize = 1280;
 const INITIAL_HEIGHT: usize = 720;
@@ -40,22 +20,20 @@ struct CameraTexture {
 struct CameraApp {
     /// 映像ソース管理
     source_manager: SourceManager,
-    /// マルチビューレイアウト設定（プレビュー用）
-    layout_config: LayoutConfig,
+    /// 下段8枠の入力ソース
+    inputs: [Option<VideoSourceId>; 8],
     /// ソースごとの描画用テクスチャ
-    source_textures: HashMap<SourceId, CameraTexture>,
+    source_textures: HashMap<VideoSourceId, CameraTexture>,
     /// Programに選択中のソースID
-    selected_source_id: Option<SourceId>,
+    selected_source_id: Option<VideoSourceId>,
     /// Previewに選択中のソースID
-    preview_source_id: Option<SourceId>,
+    preview_source_id: Option<VideoSourceId>,
     /// ソースごとの最新エラー
-    source_errors: HashMap<SourceId, String>,
+    source_errors: HashMap<VideoSourceId, String>,
     /// 入力管理ウィンドウの表示状態
     show_input_settings: bool,
     /// カメラ名などのラベルを表示するかどうか
     show_labels: bool,
-    /// 録画マネージャー
-    recorder_manager: RecorderManager,
 }
 
 impl CameraApp {
@@ -85,22 +63,19 @@ impl CameraApp {
         nokhwa::nokhwa_initialize(|_| {});
 
         let mut source_manager = SourceManager::new();
-        // 入力は常に8枠（4x2）固定
-        let input_layout_type = LayoutType::Inputs4x2;
-        let mut layout_config = LayoutConfig::new(input_layout_type);
+        let mut inputs = [None; 8];
 
         // すべてのカメラを割り当て
         let available_sources: Vec<_> = source_manager.available_sources().to_vec();
         let mut source_errors = HashMap::new();
         for (i, source_info) in available_sources.iter().enumerate() {
-            if i < layout_config.view_count() {
+            if i < 8 {
                 match source_manager.open_source(source_info.id) {
                     Ok(_) => {
-                        layout_config.assign_source(i, Some(source_info.id));
+                        inputs[i] = Some(source_info.id);
                     }
                     Err(e) => {
                         source_errors.insert(source_info.id, format!("open failed: {}", e));
-                        layout_config.assign_source(i, None);
                     }
                 }
             }
@@ -122,14 +97,13 @@ impl CameraApp {
 
         Self {
             source_manager,
-            layout_config,
+            inputs,
             source_textures: HashMap::new(),
             selected_source_id,
             preview_source_id,
             source_errors,
             show_input_settings: false,
             show_labels: true,
-            recorder_manager: RecorderManager::new(),
         }
     }
 
@@ -144,12 +118,8 @@ impl CameraApp {
         if let Some(id) = self.selected_source_id {
             needed_sources.insert(id);
         }
-        for view_idx in 0..self.layout_config.view_count() {
-            if let Some(view) = self.layout_config.view(view_idx)
-                && let Some(id) = view.source_id
-            {
-                needed_sources.insert(id);
-            }
+        for id in self.inputs.into_iter().flatten() {
+            needed_sources.insert(id);
         }
 
         for source_id in needed_sources {
@@ -181,40 +151,12 @@ impl CameraApp {
                             },
                         );
                     }
-
-                    // 録画セッションがあればフレームを転送する
-                    if self.recorder_manager.is_recording() {
-                        let frame_arc = Arc::new(frame_data);
-                        // どのInputに割り当てられているかを探して録画へ送る
-                        for view_idx in 0..self.layout_config.view_count() {
-                            if let Some(view) = self.layout_config.view(view_idx)
-                                && view.source_id == Some(source_id)
-                            {
-                                self.recorder_manager.dispatch_frame(
-                                    RecordingTarget::Input(view_idx),
-                                    frame_arc.clone(),
-                                );
-                            }
-                        }
-
-                        // もし現在 Program に選ばれていたら Program 用に送る
-                        if Some(source_id) == self.selected_source_id {
-                            self.recorder_manager
-                                .dispatch_frame(RecordingTarget::Program, frame_arc.clone());
-                        }
-
-                        // もし現在 Preview に選ばれていたら Preview 用に送る
-                        if Some(source_id) == self.preview_source_id {
-                            self.recorder_manager
-                                .dispatch_frame(RecordingTarget::Preview, frame_arc);
-                        }
-                    }
                 }
                 Ok(None) => {
                     // まだ新しいフレームが無いので何もしない (ノンブロッキング)
                 }
                 Err(e) => {
-                    self.source_errors.insert(source_id, e);
+                    self.source_errors.insert(source_id, e.to_string());
                 }
             }
         }
@@ -223,32 +165,6 @@ impl CameraApp {
 
 impl eframe::App for CameraApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // キーボード入力処理
-        if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-            // エンターキーでプログラムとプレビューをスイッチング（スワップ）
-            std::mem::swap(&mut self.selected_source_id, &mut self.preview_source_id);
-        }
-
-        // 数字キー(1〜8)でプレビューカメラを切り替え（レイアウト上の入力スロットに基づく）
-        let num_keys = [
-            (egui::Key::Num1, 0),
-            (egui::Key::Num2, 1),
-            (egui::Key::Num3, 2),
-            (egui::Key::Num4, 3),
-            (egui::Key::Num5, 4),
-            (egui::Key::Num6, 5),
-            (egui::Key::Num7, 6),
-            (egui::Key::Num8, 7),
-        ];
-        for (key, idx) in num_keys.iter() {
-            if ctx.input(|i| i.key_pressed(*key))
-                && let Some(view) = self.layout_config.view(*idx)
-                && let Some(source_id) = view.source_id
-            {
-                self.preview_source_id = Some(source_id);
-            }
-        }
-
         // フレームをキャプチャ
         self.capture_all_frames(ctx);
 
@@ -264,9 +180,6 @@ impl eframe::App for CameraApp {
                 ui.menu_button("Settings", |ui| {
                     if ui.button("⚙ Manage Inputs").clicked() {
                         self.show_input_settings = !self.show_input_settings;
-                    }
-                    if ui.button("⏺ Manage Recordings").clicked() {
-                        self.recorder_manager.show_settings = !self.recorder_manager.show_settings;
                     }
                     ui.separator();
                     ui.checkbox(&mut self.show_labels, "Show Labels");
@@ -357,24 +270,6 @@ impl eframe::App for CameraApp {
                         self.source_manager.available_sources().len()
                     ));
 
-                    // 全体の録画コントロール
-                    if self.recorder_manager.is_recording() {
-                        if ui.button("🔴 Stop Recording").clicked() {
-                            self.recorder_manager.stop_all();
-                        }
-                    } else {
-                        // 設定されているものが1つ以上あるかチェック
-                        let has_enabled_targets =
-                            self.recorder_manager.record_configs.values().any(|&v| v);
-                        let btn = egui::Button::new("⏺ Start Recording");
-
-                        // 1つ以上チェックがついている場合のみ押せるようにする
-                        let res = ui.add_enabled(has_enabled_targets, btn);
-                        if res.clicked() && has_enabled_targets {
-                            self.recorder_manager.start_selected();
-                        }
-                    }
-
                     ui.separator();
                 });
             });
@@ -406,12 +301,11 @@ impl eframe::App for CameraApp {
             .show(ctx, |ui| {
                 let available_sources = self.source_manager.available_sources().to_vec();
 
-                for idx in 0..self.layout_config.view_count() {
+                for idx in 0..8 {
                     ui.horizontal(|ui| {
                         ui.label(format!("Input {}:", idx + 1));
 
-                        let current_source_id =
-                            self.layout_config.view(idx).and_then(|v| v.source_id);
+                        let current_source_id = self.inputs[idx];
 
                         let selected_text = if let Some(id) = current_source_id {
                             available_sources
@@ -429,7 +323,7 @@ impl eframe::App for CameraApp {
                                 // "None" の選択肢
                                 let mut is_none = current_source_id.is_none();
                                 if ui.selectable_value(&mut is_none, true, "None").clicked() {
-                                    self.layout_config.assign_source(idx, None);
+                                    self.inputs[idx] = None;
                                 }
 
                                 // 利用可能なソースの選択肢
@@ -446,7 +340,7 @@ impl eframe::App for CameraApp {
                                         } else {
                                             self.source_errors.remove(&source.id);
                                         }
-                                        self.layout_config.assign_source(idx, Some(source.id));
+                                        self.inputs[idx] = Some(source.id);
                                     }
                                 }
                             });
@@ -454,66 +348,6 @@ impl eframe::App for CameraApp {
                 }
             });
         self.show_input_settings = show_settings;
-
-        // ===== 録画設定 ウィンドウ =====
-        let mut show_record_settings = self.recorder_manager.show_settings;
-        egui::Window::new("Record Settings")
-            .open(&mut show_record_settings)
-            .resizable(false)
-            .collapsible(true)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Save Directory: ");
-                    if ui.button("Select Folder").clicked()
-                        && let Some(folder) = rfd::FileDialog::new().pick_folder()
-                    {
-                        self.recorder_manager.save_dir = folder;
-                    }
-                });
-                ui.label(format!("{}", self.recorder_manager.save_dir.display()));
-                ui.separator();
-
-                ui.label("Select Targets to Record (mp4):");
-
-                // Program, Preview
-                {
-                    let target = RecordingTarget::Program;
-                    let mut b = *self
-                        .recorder_manager
-                        .record_configs
-                        .get(&target)
-                        .unwrap_or(&false);
-                    if ui.checkbox(&mut b, "Program").changed() {
-                        self.recorder_manager.record_configs.insert(target, b);
-                    }
-                }
-                {
-                    let target = RecordingTarget::Preview;
-                    let mut b = *self
-                        .recorder_manager
-                        .record_configs
-                        .get(&target)
-                        .unwrap_or(&false);
-                    if ui.checkbox(&mut b, "Preview").changed() {
-                        self.recorder_manager.record_configs.insert(target, b);
-                    }
-                }
-
-                ui.separator();
-                ui.label("Inputs:");
-                for i in 0..8 {
-                    let target = RecordingTarget::Input(i);
-                    let mut b = *self
-                        .recorder_manager
-                        .record_configs
-                        .get(&target)
-                        .unwrap_or(&false);
-                    if ui.checkbox(&mut b, format!("Input {}", i + 1)).changed() {
-                        self.recorder_manager.record_configs.insert(target, b);
-                    }
-                }
-            });
-        self.recorder_manager.show_settings = show_record_settings;
 
         // ===== トップパネル（プレビュー＆プログラム）=====
         // CentralPanelの内部余白(margin)を0に設定する
@@ -540,11 +374,10 @@ impl eframe::App for CameraApp {
             painter.rect_filled(bg_rect, 0.0, egui::Color32::BLACK);
 
             // 画像のUVと描画をヘルパー関数で処理
-            let draw_cam = |source_id: Option<SourceId>,
+            let draw_cam = |source_id: Option<VideoSourceId>,
                             rect: egui::Rect,
                             label_text: &str,
-                            border_override: Option<egui::Color32>,
-                            is_recording: bool| {
+                            border_override: Option<egui::Color32>| {
                 let mut is_preview = false;
                 let mut is_program = false;
 
@@ -644,41 +477,6 @@ impl eframe::App for CameraApp {
                     painter.rect_filled(bg_rect, 4.0, bg_color); // 角丸4px
                     painter.galley(text_pos, galley, egui::Color32::WHITE);
                 }
-
-                // 録画中の場合、右上に「REC」と赤い丸を描画
-                if is_recording {
-                    let rec_color = egui::Color32::RED;
-                    let font_id = egui::FontId::proportional(16.0);
-                    let rec_text = "REC";
-                    let galley = painter.layout_no_wrap(rec_text.to_string(), font_id, rec_color);
-                    let text_size = galley.size();
-
-                    let radius = 5.0;
-                    let circle_padding = 6.0;
-                    let total_width = radius * 2.0 + circle_padding + text_size.x;
-
-                    // コンテンツ全体の左上の位置
-                    // 右と上から12px分の余白を取り、枠線や角丸と被りにくくする
-                    let content_pos =
-                        egui::pos2(rect.max.x - total_width - 12.0, rect.min.y + 12.0);
-
-                    // 黒の半透明背景を敷いて視認性を上げる
-                    let bg_rect = egui::Rect::from_min_size(
-                        content_pos - egui::vec2(6.0, 4.0),
-                        egui::vec2(total_width, text_size.y) + egui::vec2(12.0, 8.0),
-                    );
-                    painter.rect_filled(bg_rect, 4.0, egui::Color32::from_black_alpha(160));
-
-                    // 赤い丸を描画
-                    let circle_center =
-                        egui::pos2(content_pos.x + radius, content_pos.y + text_size.y / 2.0);
-                    painter.circle_filled(circle_center, radius, rec_color);
-
-                    // "REC" の文字を描画
-                    let text_pos =
-                        egui::pos2(content_pos.x + radius * 2.0 + circle_padding, content_pos.y);
-                    painter.galley(text_pos, galley, rec_color);
-                }
             };
 
             let base_pos = response.rect.min + egui::vec2(x_offset, y_offset);
@@ -688,15 +486,11 @@ impl eframe::App for CameraApp {
                 base_pos,
                 egui::vec2(top_view_width as f32, top_height as f32),
             );
-            let is_rec_preview = self
-                .recorder_manager
-                .is_recording_target(&RecordingTarget::Preview);
             draw_cam(
                 self.preview_source_id,
                 preview_rect,
                 "Preview",
                 Some(egui::Color32::GREEN),
-                is_rec_preview,
             );
 
             // ② プログラム（右上）
@@ -704,15 +498,11 @@ impl eframe::App for CameraApp {
                 base_pos + egui::vec2(top_view_width as f32, 0.0),
                 egui::vec2(top_view_width as f32, top_height as f32),
             );
-            let is_rec_program = self
-                .recorder_manager
-                .is_recording_target(&RecordingTarget::Program);
             draw_cam(
                 self.selected_source_id,
                 program_rect,
                 "Program",
                 Some(egui::Color32::RED),
-                is_rec_program,
             );
 
             // ③ マルチビュー（下段 4x2）
@@ -737,20 +527,13 @@ impl eframe::App for CameraApp {
                     );
 
                     // レイアウト上のソースIDを取得
-                    let (source_id, source_label) = if view_idx < self.layout_config.view_count() {
-                        (
-                            self.layout_config.view(view_idx).and_then(|v| v.source_id),
-                            format!("Input {}", view_idx + 1),
-                        )
+                    let (source_id, source_label) = if view_idx < 8 {
+                        (self.inputs[view_idx], format!("Input {}", view_idx + 1))
                     } else {
                         (None, String::new())
                     };
 
-                    let is_rec_input = self
-                        .recorder_manager
-                        .is_recording_target(&RecordingTarget::Input(view_idx));
-
-                    draw_cam(source_id, rect, &source_label, None, is_rec_input);
+                    draw_cam(source_id, rect, &source_label, None);
                     view_idx += 1;
                 }
             }
