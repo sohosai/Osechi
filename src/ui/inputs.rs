@@ -14,7 +14,7 @@ impl OsechiApp {
                 }
                 ui.separator();
 
-                let available_sources = self.video_source_manager.web_camera_list().to_vec();
+                let available_sources = self.video_source_manager.web_camera_list();
 
                 for idx in 0..8 {
                     ui.horizontal(|ui| {
@@ -25,8 +25,8 @@ impl OsechiApp {
                         let selected_text = if let Some(id) = &current_source_id {
                             available_sources
                                 .iter()
-                                .find(|s| s.id == *id)
-                                .map(|s| s.name.clone())
+                                .find(|s| s.id() == *id)
+                                .map(|s| s.name())
                                 .unwrap_or_else(|| "Unknown / Disconnected".to_string())
                         } else {
                             "None".to_string()
@@ -40,14 +40,14 @@ impl OsechiApp {
                                     self.inputs[idx] = None;
                                 }
 
-                                for source in &available_sources {
+                                for source in available_sources {
                                     let mut is_selected =
-                                        current_source_id.as_ref() == Some(&source.id);
+                                        current_source_id.as_ref() == Some(&source.id());
                                     if ui
-                                        .selectable_value(&mut is_selected, true, &source.name)
+                                        .selectable_value(&mut is_selected, true, source.name())
                                         .clicked()
                                     {
-                                        self.inputs[idx] = Some(source.id.clone());
+                                        self.inputs[idx] = Some(source.id().clone());
                                     }
                                 }
                             });

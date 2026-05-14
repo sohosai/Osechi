@@ -89,7 +89,7 @@ impl OsechiApp {
 
         for id in &needed_sources {
             if !self.active_sources.contains_key(id) {
-                match self.video_source_manager.open_source(id) {
+                match self.video_source_manager.open(id) {
                     Ok(source) => {
                         self.active_sources.insert(
                             id.clone(),

@@ -24,7 +24,7 @@ impl OsechiApp {
                         .video_source_manager
                         .web_camera_list()
                         .iter()
-                        .map(|s| s.name.clone())
+                        .map(|s| s.name())
                         .collect();
 
                     // Programソースの選択
@@ -33,7 +33,7 @@ impl OsechiApp {
                             self.video_source_manager
                                 .web_camera_list()
                                 .iter()
-                                .position(|s| &s.id == id)
+                                .position(|s| s.id() == *id)
                         });
 
                         let mut new_selected = selected_idx;
@@ -46,7 +46,7 @@ impl OsechiApp {
                             && idx < self.video_source_manager.web_camera_list().len()
                         {
                             let new_id =
-                                self.video_source_manager.web_camera_list()[idx].id.clone();
+                                self.video_source_manager.web_camera_list()[idx].id();
                             self.selected_source_id = Some(new_id);
                         }
                     });
@@ -57,7 +57,7 @@ impl OsechiApp {
                             self.video_source_manager
                                 .web_camera_list()
                                 .iter()
-                                .position(|s| &s.id == id)
+                                .position(|s| s.id() == *id)
                         });
 
                         let mut new_preview = preview_idx;
@@ -70,7 +70,7 @@ impl OsechiApp {
                             && idx < self.video_source_manager.web_camera_list().len()
                         {
                             let new_id =
-                                self.video_source_manager.web_camera_list()[idx].id.clone();
+                                self.video_source_manager.web_camera_list()[idx].id();
                             self.preview_source_id = Some(new_id);
                         }
                     });

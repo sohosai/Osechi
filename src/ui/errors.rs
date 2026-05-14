@@ -16,9 +16,9 @@ impl OsechiApp {
                                 .video_source_manager
                                 .web_camera_list()
                                 .iter()
-                                .find(|s| s.id == *id)
-                                .map(|s| s.name.clone())
-                                .unwrap_or_else(|| id.as_string());
+                                .find(|s| s.id() == *id)
+                                .map(|s| s.name())
+                                .unwrap_or_else(|| "Unknown".to_string());
                             ui.colored_label(egui::Color32::RED, format!("{}: {}", name, err));
                         }
                     }
