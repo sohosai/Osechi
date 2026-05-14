@@ -8,15 +8,14 @@ use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
 
 use crate::error::AppError;
-use crate::source::video::traits::{FrameData, VideoSourceId};
+use crate::source::video::traits::FrameData;
 
 pub struct WebCamera {
-    _id: VideoSourceId,
     rx: mpsc::Receiver<Result<FrameData, AppError>>,
 }
 
 impl WebCamera {
-    pub fn new(id: VideoSourceId, index: CameraIndex) -> Result<Self, AppError> {
+    pub fn new(index: CameraIndex) -> Result<Self, AppError> {
         let (tx, rx) = mpsc::sync_channel(2);
 
         thread::spawn(move || {
@@ -71,6 +70,6 @@ impl WebCamera {
             }
         });
 
-        Ok(Self { _id: id, rx })
+        Ok(Self { rx })
     }
 }

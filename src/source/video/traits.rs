@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VideoSourceId(pub usize);
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VideoSourceId(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceInfo {

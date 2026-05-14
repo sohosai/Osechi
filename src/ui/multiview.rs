@@ -1,8 +1,8 @@
-use crate::app::CameraApp;
+use crate::app::OsechiApp;
 use crate::source::video::traits::VideoSourceId;
 use eframe::egui;
 
-impl CameraApp {
+impl OsechiApp {
     pub(crate) fn draw_multiview(&mut self, ctx: &egui::Context) {
         let frame = egui::Frame::central_panel(&ctx.style()).inner_margin(0.0);
         egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
@@ -30,9 +30,9 @@ impl CameraApp {
                 let mut is_preview = false;
                 let mut is_program = false;
 
-                if let Some(id) = source_id {
-                    is_preview = Some(id) == self.preview_source_id;
-                    is_program = Some(id) == self.selected_source_id;
+                if let Some(id) = &source_id {
+                    is_preview = Some(id) == self.preview_source_id.as_ref();
+                    is_program = Some(id) == self.selected_source_id.as_ref();
                 }
 
                 let mut stroke_color = egui::Color32::DARK_GRAY;
@@ -43,14 +43,15 @@ impl CameraApp {
                     stroke_width = 3.0;
                 } else if is_program {
                     stroke_color = egui::Color32::RED;
-                    stroke_width = 3.0; // プログラムは赤枠
+                    stroke_width = 3.0;
                 } else if is_preview {
                     stroke_color = egui::Color32::GREEN;
-                    stroke_width = 3.0; // プレビューは緑枠
+                    stroke_width = 3.0;
                 }
 
-                if let Some(id) = source_id
-                    && let Some(tex) = self.source_textures.get(&id)
+                if let Some(id) = &source_id
+                    && let Some(active) = self.active_sources.get(id)
+                    && let Some(tex) = &active.texture
                 {
                     let img_aspect = tex.width as f32 / tex.height as f32;
                     let target_aspect = 16.0 / 9.0;
@@ -125,7 +126,7 @@ impl CameraApp {
                 egui::vec2(top_view_width as f32, top_height as f32),
             );
             draw_cam(
-                self.preview_source_id,
+                self.preview_source_id.clone(),
                 preview_rect,
                 "Preview",
                 Some(egui::Color32::GREEN),
@@ -137,7 +138,7 @@ impl CameraApp {
                 egui::vec2(top_view_width as f32, top_height as f32),
             );
             draw_cam(
-                self.selected_source_id,
+                self.selected_source_id.clone(),
                 program_rect,
                 "Program",
                 Some(egui::Color32::RED),
@@ -162,7 +163,10 @@ impl CameraApp {
                     );
 
                     let (source_id, source_label) = if view_idx < 8 {
-                        (self.inputs[view_idx], format!("Input {}", view_idx + 1))
+                        (
+                            self.inputs[view_idx].clone(),
+                            format!("Input {}", view_idx + 1),
+                        )
                     } else {
                         (None, String::new())
                     };

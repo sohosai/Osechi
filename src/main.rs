@@ -1,4 +1,4 @@
-use osechi::app::{CameraApp, INITIAL_HEIGHT, INITIAL_WIDTH};
+use osechi::app::{INITIAL_HEIGHT, INITIAL_WIDTH, OsechiApp};
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -8,8 +8,9 @@ fn main() -> eframe::Result {
     };
 
     eframe::run_native(
-        "Oseti",
+        // ウインドウにバージョンを入れる
+        concat!("Osechi v", env!("CARGO_PKG_VERSION")),
         options,
-        Box::new(|cc| Ok(Box::new(CameraApp::new(&cc.egui_ctx)))),
+        Box::new(|cc| Ok(Box::new(OsechiApp::new(&cc.egui_ctx)))),
     )
 }

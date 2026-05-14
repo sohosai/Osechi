@@ -1,8 +1,8 @@
 use eframe::egui;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::source::SourceManager;
-use crate::source::video::traits::VideoSourceId;
+use crate::source::video::traits::{VideoSource, VideoSourceId};
 
 pub const INITIAL_WIDTH: usize = 1280;
 pub const INITIAL_HEIGHT: usize = 720;
@@ -14,19 +14,44 @@ pub struct CameraTexture {
     pub height: u32,
 }
 
+/// アクティブなカメラの状態（テクスチャとエラーをカプセル化）
+pub struct ActiveSource {
+    pub source: Option<Box<dyn VideoSource>>,
+    pub texture: Option<CameraTexture>,
+    pub last_error: Option<String>,
+}
+
 /// メインアプリケーション状態
-pub struct CameraApp {
+pub struct OsechiApp {
     pub source_manager: SourceManager,
     pub inputs: [Option<VideoSourceId>; 8],
-    pub source_textures: HashMap<VideoSourceId, CameraTexture>,
+    pub active_sources: HashMap<VideoSourceId, ActiveSource>,
     pub selected_source_id: Option<VideoSourceId>,
     pub preview_source_id: Option<VideoSourceId>,
-    pub source_errors: HashMap<VideoSourceId, String>,
     pub show_input_settings: bool,
     pub show_labels: bool,
 }
 
-impl CameraApp {
+impl OsechiApp {
+    /// アプリの初期化関数
+    pub fn new(_ctx: &egui::Context) -> Self {
+        nokhwa::nokhwa_initialize(|_| {});
+
+        let source_manager = SourceManager::new();
+        let inputs = [None, None, None, None, None, None, None, None];
+
+        Self {
+            source_manager,
+            inputs,
+            active_sources: HashMap::new(),
+            selected_source_id: None,
+            preview_source_id: None,
+            show_input_settings: false,
+            show_labels: true,
+        }
+    }
+
+    /// 現在のウインドウサイズを取得して、画面が崩れないように配置を再計算する関数
     pub fn fit_canvas_size(available: egui::Vec2) -> (usize, usize) {
         let target_aspect = 16.0f32 / 9.0f32;
 
@@ -45,103 +70,89 @@ impl CameraApp {
         (width_px, height_px)
     }
 
-    pub fn new(_ctx: &egui::Context) -> Self {
-        nokhwa::nokhwa_initialize(|_| {});
+    pub fn capture_all_frames(&mut self, ctx: &egui::Context) {
+        let mut needed_sources = HashSet::new();
 
-        let mut source_manager = SourceManager::new();
-        let mut inputs = [None; 8];
+        if let Some(id) = &self.preview_source_id {
+            needed_sources.insert(id.clone());
+        }
+        if let Some(id) = &self.selected_source_id {
+            needed_sources.insert(id.clone());
+        }
+        for id in self.inputs.iter().flatten() {
+            needed_sources.insert(id.clone());
+        }
 
-        let available_sources: Vec<_> = source_manager.available_sources().to_vec();
-        let mut source_errors = HashMap::new();
-        for (i, source_info) in available_sources.iter().enumerate() {
-            if i < 8 {
-                match source_manager.open_source(source_info.id) {
-                    Ok(_) => {
-                        inputs[i] = Some(source_info.id);
+        self.active_sources
+            .retain(|id, _| needed_sources.contains(id));
+
+        for id in &needed_sources {
+            if !self.active_sources.contains_key(id) {
+                match self.source_manager.open_source(id) {
+                    Ok(source) => {
+                        self.active_sources.insert(
+                            id.clone(),
+                            ActiveSource {
+                                source: Some(source),
+                                texture: None,
+                                last_error: None,
+                            },
+                        );
                     }
                     Err(e) => {
-                        source_errors.insert(source_info.id, format!("open failed: {}", e));
+                        self.active_sources.insert(
+                            id.clone(),
+                            ActiveSource {
+                                source: None,
+                                texture: None,
+                                last_error: Some(format!("open failed: {}", e)),
+                            },
+                        );
                     }
                 }
             }
         }
 
-        let preview_source_id = available_sources.first().map(|s| s.id);
-        let selected_source_id = available_sources.get(1).map(|s| s.id).or(preview_source_id);
+        // アクティブな全ソースからフレームを取得してテクスチャを更新
+        for (source_id, active) in self.active_sources.iter_mut() {
+            if let Some(source) = &mut active.source {
+                match source.get_frame() {
+                    Ok(Some(frame_data)) => {
+                        active.last_error = None;
+                        let w = frame_data.width as usize;
+                        let h = frame_data.height as usize;
 
-        if let Some(source_id) = preview_source_id
-            && let Err(e) = source_manager.open_source(source_id)
-        {
-            source_errors.insert(source_id, format!("open failed: {}", e));
-        }
-        if let Some(source_id) = selected_source_id
-            && let Err(e) = source_manager.open_source(source_id)
-        {
-            source_errors.insert(source_id, format!("open failed: {}", e));
-        }
+                        let color_image = egui::ColorImage::from_rgb([w, h], &frame_data.pixels);
 
-        Self {
-            source_manager,
-            inputs,
-            source_textures: HashMap::new(),
-            selected_source_id,
-            preview_source_id,
-            source_errors,
-            show_input_settings: false,
-            show_labels: true,
-        }
-    }
-
-    pub fn capture_all_frames(&mut self, ctx: &egui::Context) {
-        let mut needed_sources = std::collections::HashSet::new();
-
-        if let Some(id) = self.preview_source_id {
-            needed_sources.insert(id);
-        }
-        if let Some(id) = self.selected_source_id {
-            needed_sources.insert(id);
-        }
-        for id in self.inputs.into_iter().flatten() {
-            needed_sources.insert(id);
-        }
-
-        for source_id in needed_sources {
-            match self.source_manager.get_frame(source_id) {
-                Ok(Some(frame_data)) => {
-                    self.source_errors.remove(&source_id);
-                    let w = frame_data.width as usize;
-                    let h = frame_data.height as usize;
-
-                    let color_image = egui::ColorImage::from_rgb([w, h], &frame_data.pixels);
-
-                    if let Some(tex) = self.source_textures.get_mut(&source_id) {
-                        tex.handle.set(color_image, egui::TextureOptions::LINEAR);
-                        tex.width = frame_data.width;
-                        tex.height = frame_data.height;
-                    } else {
-                        let name = format!("source_tex_{}", source_id.0);
-                        let handle =
-                            ctx.load_texture(&name, color_image, egui::TextureOptions::LINEAR);
-                        self.source_textures.insert(
-                            source_id,
-                            CameraTexture {
+                        if let Some(tex) = &mut active.texture {
+                            tex.handle.set(color_image, egui::TextureOptions::LINEAR);
+                            tex.width = frame_data.width;
+                            tex.height = frame_data.height;
+                        } else {
+                            // IDから安全な文字列を生成してテクスチャ名にする
+                            let safe_name =
+                                source_id.0.replace(|c: char| !c.is_alphanumeric(), "_");
+                            let name = format!("source_tex_{}", safe_name);
+                            let handle =
+                                ctx.load_texture(&name, color_image, egui::TextureOptions::LINEAR);
+                            active.texture = Some(CameraTexture {
                                 handle,
                                 width: frame_data.width,
                                 height: frame_data.height,
-                            },
-                        );
+                            });
+                        }
                     }
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    self.source_errors.insert(source_id, e.to_string());
+                    Ok(None) => {}
+                    Err(e) => {
+                        active.last_error = Some(e.to_string());
+                    }
                 }
             }
         }
     }
 }
 
-impl eframe::App for CameraApp {
+impl eframe::App for OsechiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.capture_all_frames(ctx);
 
