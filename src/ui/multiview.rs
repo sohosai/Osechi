@@ -3,6 +3,7 @@ use crate::source::video::traits::VideoSourceId;
 use eframe::egui;
 
 impl OsechiApp {
+    /// 映像のPreviewのUI
     pub(crate) fn draw_multiview(&mut self, ctx: &egui::Context) {
         let frame = egui::Frame::central_panel(&ctx.style()).inner_margin(0.0);
         egui::CentralPanel::default().frame(frame).show(ctx, |ui| {

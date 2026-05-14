@@ -10,11 +10,11 @@ impl OsechiApp {
             .collapsible(false)
             .show(ctx, |ui| {
                 if ui.button("🔄 Rescan Devices").clicked() {
-                    self.source_manager.rescan();
+                    self.video_source_manager.web_camera_scan();
                 }
                 ui.separator();
 
-                let available_sources = self.source_manager.available_sources().to_vec();
+                let available_sources = self.video_source_manager.web_camera_list().to_vec();
 
                 for idx in 0..8 {
                     ui.horizontal(|ui| {

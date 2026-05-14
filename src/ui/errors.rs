@@ -13,12 +13,12 @@ impl OsechiApp {
                     for (id, active) in &self.active_sources {
                         if let Some(err) = &active.last_error {
                             let name = self
-                                .source_manager
-                                .available_sources()
+                                .video_source_manager
+                                .web_camera_list()
                                 .iter()
                                 .find(|s| s.id == *id)
                                 .map(|s| s.name.clone())
-                                .unwrap_or_else(|| id.0.clone());
+                                .unwrap_or_else(|| id.as_string());
                             ui.colored_label(egui::Color32::RED, format!("{}: {}", name, err));
                         }
                     }

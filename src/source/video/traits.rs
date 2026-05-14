@@ -1,7 +1,21 @@
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VideoSourceId(pub String);
+pub enum VideoSourceId {
+    WebCamera(String),
+    Desktop(String),
+    Ndi(String),
+}
+
+impl VideoSourceId {
+    pub fn as_string(&self) -> String {
+        match self {
+            Self::WebCamera(id) => format!("web_camera_{}", id),
+            Self::Desktop(id) => format!("desktop_{}", id),
+            Self::Ndi(id) => format!("ndi_{}", id),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceInfo {
@@ -17,8 +31,6 @@ pub struct FrameData {
     pub height: u32,
 }
 
-/// すべての映像ソースが実装すべき共通トレイト
 pub trait VideoSource: Send {
-    /// 次のフレームデータを取得する関数
     fn get_frame(&mut self) -> Result<Option<FrameData>, crate::error::AppError>;
 }

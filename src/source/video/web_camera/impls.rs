@@ -5,7 +5,6 @@ use crate::{
         web_camera::WebCamera,
     },
 };
-
 impl VideoSource for WebCamera {
     fn get_frame(&mut self) -> Result<Option<FrameData>, AppError> {
         match self.rx.try_recv() {

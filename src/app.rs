@@ -1,7 +1,7 @@
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 
-use crate::source::SourceManager;
+use crate::source::VideoSourceManager;
 use crate::source::video::traits::{VideoSource, VideoSourceId};
 
 pub const INITIAL_WIDTH: usize = 1280;
@@ -21,9 +21,9 @@ pub struct ActiveSource {
     pub last_error: Option<String>,
 }
 
-/// メインアプリケーション状態
+///　アプリ全体のステート
 pub struct OsechiApp {
-    pub source_manager: SourceManager,
+    pub video_source_manager: VideoSourceManager,
     pub inputs: [Option<VideoSourceId>; 8],
     pub active_sources: HashMap<VideoSourceId, ActiveSource>,
     pub selected_source_id: Option<VideoSourceId>,
@@ -37,11 +37,11 @@ impl OsechiApp {
     pub fn new(_ctx: &egui::Context) -> Self {
         nokhwa::nokhwa_initialize(|_| {});
 
-        let source_manager = SourceManager::new();
+        let video_source_manager = VideoSourceManager::new();
         let inputs = [None, None, None, None, None, None, None, None];
 
         Self {
-            source_manager,
+            video_source_manager,
             inputs,
             active_sources: HashMap::new(),
             selected_source_id: None,
@@ -51,7 +51,8 @@ impl OsechiApp {
         }
     }
 
-    /// 現在のウインドウサイズを取得して、画面が崩れないように配置を再計算する関数
+    /// 現在のウインドウサイズを取得して、画面が崩れないように配置を再計算する関数。
+    /// 毎フレーム読んで、UIが崩れないようにする。
     pub fn fit_canvas_size(available: egui::Vec2) -> (usize, usize) {
         let target_aspect = 16.0f32 / 9.0f32;
 
@@ -88,7 +89,7 @@ impl OsechiApp {
 
         for id in &needed_sources {
             if !self.active_sources.contains_key(id) {
-                match self.source_manager.open_source(id) {
+                match self.video_source_manager.open_source(id) {
                     Ok(source) => {
                         self.active_sources.insert(
                             id.clone(),
@@ -129,9 +130,9 @@ impl OsechiApp {
                             tex.width = frame_data.width;
                             tex.height = frame_data.height;
                         } else {
-                            // IDから安全な文字列を生成してテクスチャ名にする
-                            let safe_name =
-                                source_id.0.replace(|c: char| !c.is_alphanumeric(), "_");
+                            let safe_name = source_id
+                                .as_string()
+                                .replace(|c: char| !c.is_alphanumeric(), "_");
                             let name = format!("source_tex_{}", safe_name);
                             let handle =
                                 ctx.load_texture(&name, color_image, egui::TextureOptions::LINEAR);

@@ -21,8 +21,8 @@ impl OsechiApp {
 
                 ui.menu_button("Sources", |ui| {
                     let source_names: Vec<String> = self
-                        .source_manager
-                        .available_sources()
+                        .video_source_manager
+                        .web_camera_list()
                         .iter()
                         .map(|s| s.name.clone())
                         .collect();
@@ -30,8 +30,8 @@ impl OsechiApp {
                     // Programソースの選択
                     ui.menu_button("Program Source", |ui| {
                         let selected_idx = self.selected_source_id.as_ref().and_then(|id| {
-                            self.source_manager
-                                .available_sources()
+                            self.video_source_manager
+                                .web_camera_list()
                                 .iter()
                                 .position(|s| &s.id == id)
                         });
@@ -43,9 +43,10 @@ impl OsechiApp {
 
                         if new_selected != selected_idx
                             && let Some(idx) = new_selected
-                            && idx < self.source_manager.available_sources().len()
+                            && idx < self.video_source_manager.web_camera_list().len()
                         {
-                            let new_id = self.source_manager.available_sources()[idx].id.clone();
+                            let new_id =
+                                self.video_source_manager.web_camera_list()[idx].id.clone();
                             self.selected_source_id = Some(new_id);
                         }
                     });
@@ -53,8 +54,8 @@ impl OsechiApp {
                     // Previewソースの選択
                     ui.menu_button("Preview Source", |ui| {
                         let preview_idx = self.preview_source_id.as_ref().and_then(|id| {
-                            self.source_manager
-                                .available_sources()
+                            self.video_source_manager
+                                .web_camera_list()
                                 .iter()
                                 .position(|s| &s.id == id)
                         });
@@ -66,9 +67,10 @@ impl OsechiApp {
 
                         if new_preview != preview_idx
                             && let Some(idx) = new_preview
-                            && idx < self.source_manager.available_sources().len()
+                            && idx < self.video_source_manager.web_camera_list().len()
                         {
-                            let new_id = self.source_manager.available_sources()[idx].id.clone();
+                            let new_id =
+                                self.video_source_manager.web_camera_list()[idx].id.clone();
                             self.preview_source_id = Some(new_id);
                         }
                     });
@@ -77,7 +79,7 @@ impl OsechiApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(format!(
                         "📹 Sources: {}",
-                        self.source_manager.available_sources().len()
+                        self.video_source_manager.web_camera_list().len()
                     ));
 
                     ui.separator();
