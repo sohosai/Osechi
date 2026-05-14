@@ -13,6 +13,9 @@ on:
           - minor
           - major
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 permissions:
   contents: write
 
@@ -76,7 +79,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }} # バージョン更新後の最新コミットを取得するためにブランチ名を指定
+          ref: ${{ github.ref_name }}
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
