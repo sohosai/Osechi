@@ -2,7 +2,7 @@ use eframe::egui;
 use std::collections::{HashMap, HashSet};
 
 use crate::source::VideoSourceManager;
-use crate::source::video::traits::{VideoSource, VideoSourceId};
+use crate::source::video::traits::{VideoSourceId, VideoStream};
 
 pub const INITIAL_WIDTH: usize = 1280;
 pub const INITIAL_HEIGHT: usize = 720;
@@ -14,9 +14,9 @@ pub struct CameraTexture {
     pub height: u32,
 }
 
-/// アクティブなカメラの状態（テクスチャとエラーをカプセル化）
+/// アクティブなカメラの状態（ストリームとテクスチャをカプセル化）
 pub struct ActiveSource {
-    pub source: Option<Box<dyn VideoSource>>,
+    pub stream: Option<Box<dyn VideoStream>>,
     pub texture: Option<CameraTexture>,
     pub last_error: Option<String>,
 }
@@ -90,11 +90,11 @@ impl OsechiApp {
         for id in &needed_sources {
             if !self.active_sources.contains_key(id) {
                 match self.video_source_manager.open(id) {
-                    Ok(source) => {
+                    Ok(stream) => {
                         self.active_sources.insert(
                             id.clone(),
                             ActiveSource {
-                                source: Some(source),
+                                stream: Some(stream),
                                 texture: None,
                                 last_error: None,
                             },
@@ -104,7 +104,7 @@ impl OsechiApp {
                         self.active_sources.insert(
                             id.clone(),
                             ActiveSource {
-                                source: None,
+                                stream: None,
                                 texture: None,
                                 last_error: Some(format!("open failed: {}", e)),
                             },
@@ -116,8 +116,8 @@ impl OsechiApp {
 
         // アクティブな全ソースからフレームを取得してテクスチャを更新
         for (source_id, active) in self.active_sources.iter_mut() {
-            if let Some(source) = &mut active.source {
-                match source.get_frame() {
+            if let Some(stream) = &mut active.stream {
+                match stream.get_frame() {
                     Ok(Some(frame_data)) => {
                         active.last_error = None;
                         let w = frame_data.width as usize;

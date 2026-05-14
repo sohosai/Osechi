@@ -1,12 +1,12 @@
-use crate::source::video::traits::{VideoSource, VideoSourceId};
+use crate::source::video::traits::{VideoSourceDescriptor, VideoSourceId};
 use eframe::egui;
 
 /// 指定されたIDのソース名を取得する
-pub fn get_source_name(id: &VideoSourceId, sources: &[Box<dyn VideoSource>]) -> String {
+pub fn get_source_name(id: &VideoSourceId, sources: &[VideoSourceDescriptor]) -> String {
     sources
         .iter()
-        .find(|s| s.id() == *id)
-        .map(|s| s.name())
+        .find(|d| d.id == *id)
+        .map(|d| d.name.clone())
         .unwrap_or_else(|| "Unknown".to_string())
 }
 
@@ -15,7 +15,7 @@ pub fn draw_source_combo_box(
     ui: &mut egui::Ui,
     id_salt: &str,
     current_id: &mut Option<VideoSourceId>,
-    sources: &[Box<dyn VideoSource>],
+    sources: &[VideoSourceDescriptor],
 ) {
     let selected_text = current_id
         .as_ref()
@@ -30,13 +30,13 @@ pub fn draw_source_combo_box(
                 *current_id = None;
             }
 
-            for source in sources {
-                let mut is_selected = current_id.as_ref() == Some(&source.id());
+            for desc in sources {
+                let mut is_selected = current_id.as_ref() == Some(&desc.id);
                 if ui
-                    .selectable_value(&mut is_selected, true, source.name())
+                    .selectable_value(&mut is_selected, true, &desc.name)
                     .clicked()
                 {
-                    *current_id = Some(source.id());
+                    *current_id = Some(desc.id.clone());
                 }
             }
         });
@@ -47,7 +47,7 @@ pub fn draw_source_radio_menu(
     ui: &mut egui::Ui,
     title: &str,
     current_id: &mut Option<VideoSourceId>,
-    sources: &[Box<dyn VideoSource>],
+    sources: &[VideoSourceDescriptor],
 ) {
     ui.menu_button(title, |ui| {
         let mut is_none = current_id.is_none();
@@ -55,13 +55,10 @@ pub fn draw_source_radio_menu(
             *current_id = None;
         }
 
-        for source in sources {
-            let mut is_selected = current_id.as_ref() == Some(&source.id());
-            if ui
-                .radio_value(&mut is_selected, true, source.name())
-                .clicked()
-            {
-                *current_id = Some(source.id());
+        for desc in sources {
+            let mut is_selected = current_id.as_ref() == Some(&desc.id);
+            if ui.radio_value(&mut is_selected, true, &desc.name).clicked() {
+                *current_id = Some(desc.id.clone());
             }
         }
     });

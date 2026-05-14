@@ -1,20 +1,12 @@
 use crate::{
     error::AppError,
     source::video::{
-        traits::{FrameData, VideoSource, VideoSourceId},
-        web_camera::WebCamera,
+        traits::{FrameData, VideoStream},
+        web_camera::WebCameraStream,
     },
 };
 
-impl VideoSource for WebCamera {
-    fn id(&self) -> VideoSourceId {
-        self.id.clone()
-    }
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
+impl VideoStream for WebCameraStream {
     fn get_frame(&mut self) -> Result<Option<FrameData>, AppError> {
         if self.rx.is_none() {
             self.open_stream()?;
@@ -28,14 +20,5 @@ impl VideoSource for WebCamera {
                 Err(AppError::Other("Camera stream disconnected".to_string()))
             }
         }
-    }
-
-    fn clone_unopened(&self) -> Box<dyn VideoSource> {
-        Box::new(Self {
-            id: self.id.clone(),
-            name: self.name.clone(),
-            index: self.index.clone(),
-            rx: None,
-        })
     }
 }

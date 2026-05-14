@@ -3,13 +3,33 @@ pub mod video;
 use nokhwa::{native_api_backend, query};
 
 use crate::error::AppError;
-use crate::source::video::traits::{VideoSource, VideoSourceId};
-use crate::source::video::web_camera::WebCamera;
+use crate::source::video::traits::{
+    VideoSourceDescriptor, VideoSourceId, VideoSourceKind, VideoStream,
+};
+use crate::source::video::web_camera::WebCameraStream;
 
-/// あらゆる映像ソースを管理する型
+impl VideoSourceDescriptor {
+    /// この設計図から実際の映像ストリームを開く。
+    ///
+    /// 内部で OS のハードウェアデバイスへの接続が行われる。
+    pub fn open(&self) -> Result<Box<dyn VideoStream>, AppError> {
+        match &self.kind {
+            VideoSourceKind::WebCamera { index } => {
+                let mut stream = WebCameraStream::new(index.clone());
+                stream.open_stream()?;
+                Ok(Box::new(stream))
+            }
+        }
+    }
+}
+
+/// あらゆる映像ソースの検出と管理を行うマネージャー。
+///
+/// スキャンによって検出されたソースの一覧を [`VideoSourceDescriptor`] として保持し、
+/// 指定されたソースの [`VideoStream`] を生成する。
 #[derive(Default)]
 pub struct VideoSourceManager {
-    web_cameras: Vec<Box<dyn VideoSource>>,
+    web_cameras: Vec<VideoSourceDescriptor>,
     // Todo:将来的にここに伝送,画面キャプチャ,WEB View,etc...が足されていく
 }
 
@@ -31,25 +51,31 @@ impl VideoSourceManager {
             let id = VideoSourceId::WebCamera(id_str);
             let name = format!("📷 {}", info.human_name());
 
-            let camera = WebCamera::new(id, name, info.index().clone());
-            self.web_cameras.push(Box::new(camera));
+            let descriptor = VideoSourceDescriptor {
+                id,
+                name,
+                kind: VideoSourceKind::WebCamera {
+                    index: info.index().clone(),
+                },
+            };
+            self.web_cameras.push(descriptor);
         }
     }
 
-    /// 最新のスキャン結果のWEBカメラのリストを返す
-    pub fn web_camera_list(&self) -> &[Box<dyn VideoSource>] {
+    /// 最新のスキャン結果のWEBカメラの一覧を返す
+    pub fn web_camera_list(&self) -> &[VideoSourceDescriptor] {
         &self.web_cameras
     }
 
-    /// 映像ソースを開いて、[VideoSource]を取得する
-    pub fn open(&self, video_source_id: &VideoSourceId) -> Result<Box<dyn VideoSource>, AppError> {
-        let source = self
+    /// 指定されたIDの映像ソースを開き、[`VideoStream`] を取得する
+    pub fn open(&self, video_source_id: &VideoSourceId) -> Result<Box<dyn VideoStream>, AppError> {
+        let descriptor = self
             .web_cameras
             .iter()
-            .find(|s| s.id() == *video_source_id)
+            .find(|d| d.id == *video_source_id)
             .ok_or_else(|| {
                 AppError::Other(format!("VideoSource {:?} not found", video_source_id))
             })?;
-        Ok(source.clone_unopened())
+        descriptor.open()
     }
 }

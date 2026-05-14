@@ -1,6 +1,6 @@
 pub mod impls;
 
-use std::sync::{Arc, mpsc};
+use std::sync::mpsc;
 use std::thread;
 
 use nokhwa::Camera;
@@ -8,25 +8,25 @@ use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
 
 use crate::error::AppError;
-use crate::source::video::traits::{FrameData, VideoSourceId};
+use crate::source::video::traits::FrameData;
 
-pub struct WebCamera {
-    pub id: VideoSourceId,
-    pub name: String,
+/// WEBカメラのアクティブなストリーム。
+///
+/// バックグラウンドスレッドでカメラからフレームを取得し、
+/// チャネル経由でメインスレッドに送信する。
+pub struct WebCameraStream {
     pub index: CameraIndex,
     pub rx: Option<mpsc::Receiver<Result<FrameData, AppError>>>,
 }
 
-impl WebCamera {
-    pub fn new(id: VideoSourceId, name: String, index: CameraIndex) -> Self {
-        Self {
-            id,
-            name,
-            index,
-            rx: None,
-        }
+impl WebCameraStream {
+    pub fn new(index: CameraIndex) -> Self {
+        Self { index, rx: None }
     }
 
+    /// カメラのストリームを開始する。
+    ///
+    /// バックグラウンドスレッドを起動し、フレームのキャプチャを開始する。
     pub fn open_stream(&mut self) -> Result<(), AppError> {
         let (tx, rx) = mpsc::sync_channel(2);
         let index = self.index.clone();
@@ -66,7 +66,7 @@ impl WebCamera {
                                 )))
                             } else {
                                 Ok(FrameData {
-                                    pixels: Arc::new(pixels),
+                                    pixels: std::sync::Arc::new(pixels),
                                     width,
                                     height,
                                 })
