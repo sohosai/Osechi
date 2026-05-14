@@ -243,11 +243,10 @@ impl RecorderManager {
     }
 
     pub fn dispatch_frame(&self, target: RecordingTarget, frame: Arc<FrameData>) {
-        if let Some(session) = self.sessions.get(&target) {
-            if let Some(tx) = &session.tx {
+        if let Some(session) = self.sessions.get(&target)
+            && let Some(tx) = &session.tx {
                 let _ = tx.try_send(frame);
             }
-        }
     }
 }
 

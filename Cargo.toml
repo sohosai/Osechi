@@ -17,7 +17,7 @@ image = "0.25.10"
 [dev-dependencies.cargo-husky]
 version = "1"
 default-features = false
-features = ["run-cargo-test","run-cargo-clippy","run-cargo-fmt"]
+features = ["precommit-hook", "run-cargo-test", "run-cargo-clippy","run-cargo-fmt","run-cargo-test"]
 
 [profile.dev]
 opt-level = 1
