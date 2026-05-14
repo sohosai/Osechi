@@ -7,6 +7,7 @@ use crate::source::video::traits::{VideoSource, VideoSourceId};
 use crate::source::video::web_camera::WebCamera;
 
 /// あらゆる映像ソースを管理する型
+#[derive(Default)]
 pub struct VideoSourceManager {
     web_cameras: Vec<Box<dyn VideoSource>>,
     // Todo:将来的にここに伝送,画面キャプチャ,WEB View,etc...が足されていく
@@ -50,11 +51,5 @@ impl VideoSourceManager {
                 AppError::Other(format!("VideoSource {:?} not found", video_source_id))
             })?;
         Ok(source.clone_unopened())
-    }
-}
-
-impl Default for VideoSourceManager {
-    fn default() -> Self {
-        Self::new()
     }
 }
