@@ -20,37 +20,12 @@ impl OsechiApp {
                     ui.horizontal(|ui| {
                         ui.label(format!("Input {}:", idx + 1));
 
-                        let current_source_id = self.inputs[idx].clone();
-
-                        let selected_text = if let Some(id) = &current_source_id {
-                            available_sources
-                                .iter()
-                                .find(|s| s.id() == *id)
-                                .map(|s| s.name())
-                                .unwrap_or_else(|| "Unknown / Disconnected".to_string())
-                        } else {
-                            "None".to_string()
-                        };
-
-                        egui::ComboBox::from_id_salt(format!("input_select_{}", idx))
-                            .selected_text(selected_text)
-                            .show_ui(ui, |ui| {
-                                let mut is_none = current_source_id.is_none();
-                                if ui.selectable_value(&mut is_none, true, "None").clicked() {
-                                    self.inputs[idx] = None;
-                                }
-
-                                for source in available_sources {
-                                    let mut is_selected =
-                                        current_source_id.as_ref() == Some(&source.id());
-                                    if ui
-                                        .selectable_value(&mut is_selected, true, source.name())
-                                        .clicked()
-                                    {
-                                        self.inputs[idx] = Some(source.id().clone());
-                                    }
-                                }
-                            });
+                        crate::ui::utils::draw_source_combo_box(
+                            ui,
+                            &format!("input_select_{}", idx),
+                            &mut self.inputs[idx],
+                            available_sources,
+                        );
                     });
                 }
             });

@@ -121,7 +121,6 @@ impl OsechiApp {
 
             let base_pos = response.rect.min + egui::vec2(x_offset, y_offset);
 
-            // ① プレビュー（左上）
             let preview_rect = egui::Rect::from_min_size(
                 base_pos,
                 egui::vec2(top_view_width as f32, top_height as f32),
@@ -133,7 +132,6 @@ impl OsechiApp {
                 Some(egui::Color32::GREEN),
             );
 
-            // ② プログラム（右上）
             let program_rect = egui::Rect::from_min_size(
                 base_pos + egui::vec2(top_view_width as f32, 0.0),
                 egui::vec2(top_view_width as f32, top_height as f32),
@@ -145,7 +143,6 @@ impl OsechiApp {
                 Some(egui::Color32::RED),
             );
 
-            // ③ マルチビュー（下段 4x2）
             let mut view_idx = 0;
             let cols = 4;
             let rows = 2;

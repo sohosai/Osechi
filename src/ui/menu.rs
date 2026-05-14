@@ -20,58 +20,19 @@ impl OsechiApp {
                 });
 
                 ui.menu_button("Sources", |ui| {
-                    let source_names: Vec<String> = self
-                        .video_source_manager
-                        .web_camera_list()
-                        .iter()
-                        .map(|s| s.name())
-                        .collect();
-
-                    // Programソースの選択
-                    ui.menu_button("Program Source", |ui| {
-                        let selected_idx = self.selected_source_id.as_ref().and_then(|id| {
-                            self.video_source_manager
-                                .web_camera_list()
-                                .iter()
-                                .position(|s| s.id() == *id)
-                        });
-
-                        let mut new_selected = selected_idx;
-                        for (i, name) in source_names.iter().enumerate() {
-                            ui.radio_value(&mut new_selected, Some(i), name);
-                        }
-
-                        if new_selected != selected_idx
-                            && let Some(idx) = new_selected
-                            && idx < self.video_source_manager.web_camera_list().len()
-                        {
-                            let new_id = self.video_source_manager.web_camera_list()[idx].id();
-                            self.selected_source_id = Some(new_id);
-                        }
-                    });
-
-                    // Previewソースの選択
-                    ui.menu_button("Preview Source", |ui| {
-                        let preview_idx = self.preview_source_id.as_ref().and_then(|id| {
-                            self.video_source_manager
-                                .web_camera_list()
-                                .iter()
-                                .position(|s| s.id() == *id)
-                        });
-
-                        let mut new_preview = preview_idx;
-                        for (i, name) in source_names.iter().enumerate() {
-                            ui.radio_value(&mut new_preview, Some(i), name);
-                        }
-
-                        if new_preview != preview_idx
-                            && let Some(idx) = new_preview
-                            && idx < self.video_source_manager.web_camera_list().len()
-                        {
-                            let new_id = self.video_source_manager.web_camera_list()[idx].id();
-                            self.preview_source_id = Some(new_id);
-                        }
-                    });
+                    let sources = self.video_source_manager.web_camera_list();
+                    crate::ui::utils::draw_source_radio_menu(
+                        ui,
+                        "Program Source",
+                        &mut self.selected_source_id,
+                        sources,
+                    );
+                    crate::ui::utils::draw_source_radio_menu(
+                        ui,
+                        "Preview Source",
+                        &mut self.preview_source_id,
+                        sources,
+                    );
                 });
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
