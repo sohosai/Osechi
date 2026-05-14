@@ -30,12 +30,12 @@ impl VideoSource for WebCamera {
         }
     }
 
-    fn clone_box(&self) -> Box<dyn VideoSource> {
+    fn clone_unopened(&self) -> Box<dyn VideoSource> {
         Box::new(Self {
             id: self.id.clone(),
             name: self.name.clone(),
             index: self.index.clone(),
-            rx: None, // 状態はリセットしてクローン
+            rx: None,
         })
     }
 }

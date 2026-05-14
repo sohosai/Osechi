@@ -32,7 +32,11 @@ pub trait VideoSource: Send {
 
     /// この[VideoSource]から次のフレームを取得する関数
     fn get_frame(&mut self) -> Result<Option<FrameData>, crate::error::AppError>;
-    fn clone_box(&self) -> Box<dyn VideoSource>;
+
+    /// このメソッドは映像ストリーム自体をコピーしません。
+    /// 名前やIDなどの「設計図情報」のみをコピーし、ストリームの接続状態はリセットされた（空の）新しいインスタンスを返します。
+    /// 受け取った側で `get_frame()` を呼ぶと、OSに対して新たにハードウェアデバイスのオープン要求が行われます。
+    fn clone_unopened(&self) -> Box<dyn VideoSource>;
 
     // Todo:将来的には色の情報、解像度の情報、etc...が足されていく
     // 必要であればこの映像を参照しているプログラムが呼び出す

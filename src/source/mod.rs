@@ -9,6 +9,7 @@ use crate::source::video::web_camera::WebCamera;
 /// あらゆる映像ソースを管理する型
 pub struct VideoSourceManager {
     web_cameras: Vec<Box<dyn VideoSource>>,
+    // Todo:将来的にここに伝送,画面キャプチャ,WEB View,etc...が足されていく
 }
 
 impl VideoSourceManager {
@@ -48,9 +49,7 @@ impl VideoSourceManager {
             .ok_or_else(|| {
                 AppError::Other(format!("VideoSource {:?} not found", video_source_id))
             })?;
-        
-        // clone_box() で遅延評価される新しいインスタンスを返す
-        Ok(source.clone_box())
+        Ok(source.clone_unopened())
     }
 }
 

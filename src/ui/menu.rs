@@ -45,8 +45,7 @@ impl OsechiApp {
                             && let Some(idx) = new_selected
                             && idx < self.video_source_manager.web_camera_list().len()
                         {
-                            let new_id =
-                                self.video_source_manager.web_camera_list()[idx].id();
+                            let new_id = self.video_source_manager.web_camera_list()[idx].id();
                             self.selected_source_id = Some(new_id);
                         }
                     });
@@ -69,8 +68,7 @@ impl OsechiApp {
                             && let Some(idx) = new_preview
                             && idx < self.video_source_manager.web_camera_list().len()
                         {
-                            let new_id =
-                                self.video_source_manager.web_camera_list()[idx].id();
+                            let new_id = self.video_source_manager.web_camera_list()[idx].id();
                             self.preview_source_id = Some(new_id);
                         }
                     });
