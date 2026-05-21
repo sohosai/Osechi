@@ -31,7 +31,7 @@ impl SourceManager {
         for info in cameras.into_iter() {
             let id_str = format!("{}_{}", info.human_name(), info.index());
             let id = SourceId::WebCamera(id_str);
-            let name = format!("📷 {}", info.human_name());
+            let name = info.human_name().to_string();
 
             let descriptor = Descriptor {
                 id,
