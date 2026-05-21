@@ -2,7 +2,7 @@ use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{EnvFilter, Registry, fmt, prelude::*};
 
 /// ログに関連する設定を初期化する関数
-pub fn log() {
+pub fn log() -> tracing_appender::non_blocking::WorkerGuard {
     let file_appender = RollingFileAppender::builder()
         .rotation(Rotation::DAILY)
         .max_log_files(5)
@@ -11,7 +11,7 @@ pub fn log() {
         .build("./logs")
         .expect("Failed to initialize rolling file appender");
 
-    let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
+    let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info"))
@@ -26,4 +26,6 @@ pub fn log() {
         .with(stdout_layer)
         .with(file_layer)
         .init();
+
+    guard
 }
