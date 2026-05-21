@@ -21,7 +21,7 @@ env:
 jobs:
   check-and-test:
     name: Format, Lint, and Test
-    runs-on: ubuntu-latest
+    runs-on: [rke2-github-actions-runner]
 
     steps:
       - name: Checkout repository
