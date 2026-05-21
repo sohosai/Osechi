@@ -1,6 +1,8 @@
 use osechi::app::{INITIAL_HEIGHT, INITIAL_WIDTH, OsechiApp};
 
 fn main() -> eframe::Result {
+    let _log_guard = osechi::init::log();
+
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([INITIAL_WIDTH as f32, INITIAL_HEIGHT as f32 + 40.0]),

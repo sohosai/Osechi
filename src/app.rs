@@ -154,13 +154,15 @@ impl OsechiApp {
 }
 
 impl eframe::App for OsechiApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.capture_all_frames(ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
 
-        self.draw_menu(ctx);
-        self.draw_errors_window(ctx);
-        self.draw_inputs_window(ctx);
-        self.draw_multiview(ctx);
+        self.capture_all_frames(&ctx);
+
+        self.draw_menu(ui);
+        self.draw_errors_window(&ctx);
+        self.draw_inputs_window(&ctx);
+        self.draw_multiview(ui);
 
         ctx.request_repaint();
     }
