@@ -27,7 +27,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install system dependencies (Linux)
+      - name: Install system dependencies (for Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
