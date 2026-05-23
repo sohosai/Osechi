@@ -29,6 +29,10 @@ jobs:
         with:
           components: clippy
 
+      - name: Install build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
