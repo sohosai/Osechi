@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use cpal::Sample;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::error::AppError;
@@ -97,7 +98,7 @@ impl InputDeviceStream {
                 channels,
                 Arc::clone(&ring_buffer),
                 err_fn,
-                |sample| sample as f32 / i16::MAX as f32,
+                |sample| sample.to_sample::<f32>(),
             ),
             cpal::SampleFormat::U16 => build_input_stream::<u16>(
                 &device,
@@ -106,7 +107,7 @@ impl InputDeviceStream {
                 channels,
                 Arc::clone(&ring_buffer),
                 err_fn,
-                |sample| sample as f32 / u16::MAX as f32 * 2.0 - 1.0,
+                |sample| sample.to_sample::<f32>(),
             ),
             other => {
                 return Err(AppError::Other(format!(
