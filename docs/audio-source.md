@@ -111,9 +111,9 @@ last_error: Option<AppError>
 
 ## フレームサイズ方針
 
-`cpal` の callback に届く `data` の長さは OS・ドライバ・負荷によって変動する可能性がある。`AudioSource` はこの可変サイズを固定化しない。
+`cpal` の callback に届く `data` の長さは OS・ドライバ・負荷によって変動する可能性がある。`source::audio` はこの可変サイズを固定化しない。
 
-`AudioSource` の責務は、デバイスから届いた時系列の PCM chunk を、サンプル形式を揃えて渡すことに限定する。エンコーダが固定フレームサイズを要求する場合は、エンコード直前、または mixer/audio pipeline 側で固定サイズに組み直す。
+`source::audio` の責務は、デバイスから届いた時系列の PCM chunk を、サンプル形式を揃えて渡すことに限定する。エンコーダが固定フレームサイズを要求する場合は、エンコード直前、または mixer/audio pipeline 側で固定サイズに組み直す。
 
 ## SourceManager
 
