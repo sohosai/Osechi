@@ -199,7 +199,7 @@ where
 }
 
 fn push_ring_buffer(ring_buffer: &Arc<Mutex<VecDeque<AudioChunk>>>, chunk: AudioChunk) {
-    let Ok(mut buffer) = ring_buffer.try_lock() else {
+    let Ok(mut buffer) = ring_buffer.lock() else {
         return;
     };
 
@@ -210,7 +210,7 @@ fn push_ring_buffer(ring_buffer: &Arc<Mutex<VecDeque<AudioChunk>>>, chunk: Audio
 }
 
 fn set_last_error(last_error: &Mutex<Option<AppError>>, err: AppError) {
-    let Ok(mut last_error) = last_error.try_lock() else {
+    let Ok(mut last_error) = last_error.lock() else {
         return;
     };
     *last_error = Some(err);
