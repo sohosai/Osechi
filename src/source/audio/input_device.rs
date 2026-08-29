@@ -7,9 +7,9 @@ use cpal::Sample;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::error::AppError;
-use crate::source::audio::{AudioChunk, Descriptor, SourceId, SourceKind, Stream};
-
-const AUDIO_RING_BUFFER_CAPACITY: usize = 8;
+use crate::source::audio::{
+    self, AudioChunk, Descriptor, SourceId, SourceKind, Stream, push_ring_buffer, set_last_error,
+};
 
 /// OS の音声入力デバイスを検出し、軽量な [`Descriptor`] として返す。
 pub fn scan() -> Vec<Descriptor> {
@@ -69,7 +69,7 @@ impl InputDeviceStream {
         let sample_rate = config.sample_rate;
         let channels = config.channels;
         let ring_buffer = Arc::new(Mutex::new(VecDeque::with_capacity(
-            AUDIO_RING_BUFFER_CAPACITY,
+            audio::RING_BUFFER_CAPACITY,
         )));
         let last_error = Arc::new(Mutex::new(None));
 
@@ -197,22 +197,4 @@ where
             None,
         )
         .map_err(|e| AppError::Other(format!("Failed to build audio input stream: {}", e)))
-}
-
-fn push_ring_buffer(ring_buffer: &Arc<Mutex<VecDeque<AudioChunk>>>, chunk: AudioChunk) {
-    let Ok(mut buffer) = ring_buffer.lock() else {
-        return;
-    };
-
-    if buffer.len() >= AUDIO_RING_BUFFER_CAPACITY {
-        buffer.pop_front();
-    }
-    buffer.push_back(chunk);
-}
-
-fn set_last_error(last_error: &Mutex<Option<AppError>>, err: AppError) {
-    let Ok(mut last_error) = last_error.lock() else {
-        return;
-    };
-    *last_error = Some(err);
 }

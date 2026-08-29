@@ -1,7 +1,9 @@
 pub mod manager;
+pub mod screen_capture;
 pub mod web_camera;
 
 use crate::error::AppError;
+use crate::source::video::screen_capture::ScreenCaptureStream;
 use crate::source::video::web_camera::WebCameraStream;
 use nokhwa::utils::CameraIndex;
 use std::sync::Arc;
@@ -10,14 +12,15 @@ use std::sync::Arc;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SourceId {
     WebCamera(String),
-    // Todo:将来的にここに伝送,画面キャプチャ,WEB View,etc...が足されていく
+    ScreenCapture(u32),
+    // Todo:将来的にここに伝送,WEB View,etc...が足されていく
 }
 
-impl SourceId {
-    /// デバッグやテクスチャ名生成用の文字列を返す
-    pub fn as_string(&self) -> String {
+impl std::fmt::Display for SourceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::WebCamera(id) => format!("web_camera_{}", id),
+            Self::WebCamera(id) => write!(f, "web_camera_{}", id),
+            Self::ScreenCapture(id) => write!(f, "screen_capture_{}", id),
         }
     }
 }
@@ -37,7 +40,9 @@ pub struct FrameData {
 pub enum SourceKind {
     /// WEBカメラ
     WebCamera { index: CameraIndex },
-    // Todo:将来的にここに伝送,画面キャプチャ,WEB View,etc...が足されていく
+    /// 画面共有(モニター単位のキャプチャ)
+    ScreenCapture { monitor_id: u32 },
+    // Todo:将来的にここに伝送,WEB View,etc...が足されていく
 }
 
 /// ID・名前・接続パラメータなど、ストリームを開かなくても取得できる情報を保持する。
@@ -59,6 +64,11 @@ impl Descriptor {
         match &self.kind {
             SourceKind::WebCamera { index } => {
                 let mut stream = WebCameraStream::new(index.clone());
+                stream.open_stream()?;
+                Ok(Box::new(stream))
+            }
+            SourceKind::ScreenCapture { monitor_id } => {
+                let mut stream = ScreenCaptureStream::new(*monitor_id);
                 stream.open_stream()?;
                 Ok(Box::new(stream))
             }
