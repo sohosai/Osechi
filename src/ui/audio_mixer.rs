@@ -60,7 +60,10 @@ impl OsechiApp {
     fn draw_master_strip(&mut self, ui: &mut egui::Ui) {
         egui::Frame::new()
             .fill(theme::BG_PANEL_HEADER)
-            .stroke(Stroke::new(1.0, theme::ACCENT_SELECT.gamma_multiply(0.6)))
+            .stroke(Stroke::new(
+                1.0_f32,
+                theme::ACCENT_SELECT.gamma_multiply(0.6),
+            ))
             .corner_radius(6.0)
             .inner_margin(egui::Margin::symmetric(7, 8))
             .show(ui, |ui| {
@@ -157,7 +160,7 @@ impl OsechiApp {
 
         egui::Frame::new()
             .fill(theme::BG_PANEL_HEADER)
-            .stroke(Stroke::new(1.0, theme::BORDER))
+            .stroke(Stroke::new(1.0_f32, theme::BORDER))
             .corner_radius(6.0)
             .inner_margin(egui::Margin::symmetric(7, 8))
             .show(ui, |ui| {
@@ -235,7 +238,7 @@ impl OsechiApp {
         ui.painter().rect_stroke(
             rect.shrink(1.0),
             5.0,
-            Stroke::new(1.5, stroke_color),
+            Stroke::new(1.5_f32, stroke_color),
             StrokeKind::Inside,
         );
         ui.painter().text(
@@ -272,7 +275,7 @@ fn close_icon_button(ui: &mut egui::Ui) -> egui::Response {
         ui.visuals().weak_text_color()
     };
     let pad = 4.5;
-    let stroke = Stroke::new(1.3, color);
+    let stroke = Stroke::new(1.3_f32, color);
     ui.painter().line_segment(
         [rect.min + vec2(pad, pad), rect.max - vec2(pad, pad)],
         stroke,
@@ -322,12 +325,12 @@ fn mute_button(ui: &mut egui::Ui, width: f32, muted: bool) -> egui::Response {
         painter.rect_stroke(
             rect.expand(2.0),
             7.0,
-            Stroke::new(1.0, theme::ACCENT_PROGRAM.gamma_multiply(0.35)),
+            Stroke::new(1.0_f32, theme::ACCENT_PROGRAM.gamma_multiply(0.35)),
             StrokeKind::Outside,
         );
     }
     painter.rect_filled(rect, 5.0, bg);
-    painter.rect_stroke(rect, 5.0, Stroke::new(1.0, border), StrokeKind::Inside);
+    painter.rect_stroke(rect, 5.0, Stroke::new(1.0_f32, border), StrokeKind::Inside);
 
     let led_center = rect.left_center() + vec2(15.0, 0.0);
     painter.circle_filled(led_center, 4.0, led_color);
@@ -335,7 +338,7 @@ fn mute_button(ui: &mut egui::Ui, width: f32, muted: bool) -> egui::Response {
         painter.circle_stroke(
             led_center,
             6.5,
-            Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 70)),
+            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 70)),
         );
     }
 
@@ -362,7 +365,11 @@ fn fader_track(ui: &mut egui::Ui, size: egui::Vec2, level: f32, gain: &mut f32, 
         *gain = ratio;
     }
 
-    let displayed_level = if muted { 0.0 } else { level };
+    let displayed_level = if muted {
+        0.0
+    } else {
+        mixer::peak_to_meter_position(level)
+    };
     paint_fader_track(ui.painter(), rect, displayed_level, *gain, muted);
 }
 
@@ -391,7 +398,7 @@ fn paint_fader_track(painter: &egui::Painter, rect: Rect, level: f32, gain: f32,
     painter.rect_stroke(
         rect,
         5.0,
-        Stroke::new(1.0, theme::BORDER),
+        Stroke::new(1.0_f32, theme::BORDER),
         StrokeKind::Inside,
     );
 
@@ -410,7 +417,7 @@ fn paint_fader_track(painter: &egui::Painter, rect: Rect, level: f32, gain: f32,
     painter.rect_stroke(
         thumb_rect,
         2.5,
-        Stroke::new(1.0, Color32::from_rgb(0x50, 0x50, 0x56)),
+        Stroke::new(1.0_f32, Color32::from_rgb(0x50, 0x50, 0x56)),
         StrokeKind::Outside,
     );
     painter.line_segment(
@@ -418,7 +425,7 @@ fn paint_fader_track(painter: &egui::Painter, rect: Rect, level: f32, gain: f32,
             egui::pos2(thumb_rect.left() + 5.0, thumb_rect.center().y),
             egui::pos2(thumb_rect.right() - 5.0, thumb_rect.center().y),
         ],
-        Stroke::new(1.0, Color32::from_rgb(0x8a, 0x8a, 0x90)),
+        Stroke::new(1.0_f32, Color32::from_rgb(0x8a, 0x8a, 0x90)),
     );
 }
 

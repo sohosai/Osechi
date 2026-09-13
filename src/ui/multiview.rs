@@ -175,7 +175,7 @@ impl OsechiApp {
                         painter.rect_stroke(
                             rect.shrink(3.0 + 3.0 / 2.0),
                             0.0,
-                            egui::Stroke::new(3.0, theme::ACCENT_PREVIEW),
+                            egui::Stroke::new(3.0_f32, theme::ACCENT_PREVIEW),
                             egui::StrokeKind::Inside,
                         );
                     }

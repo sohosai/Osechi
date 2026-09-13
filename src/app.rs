@@ -1,5 +1,6 @@
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
+use std::net::Ipv4Addr;
 
 use crate::mixer;
 use crate::source::audio;
@@ -7,6 +8,26 @@ use crate::source::video;
 
 pub const INITIAL_WIDTH: usize = 1280;
 pub const INITIAL_HEIGHT: usize = 720;
+
+/// 起動時にデフォルトで受信するDM7のAES67フロー(Dante Controllerで
+/// マルチキャストフロー作成済み、`239.69.123.1:5004`, RTP payload type 96,
+/// L24モノラル48kHz)。
+fn default_dm7_aes67_descriptor() -> audio::Descriptor {
+    audio::Descriptor {
+        id: audio::SourceId::Aes67("239.69.123.1:5004".to_string()),
+        name: "DM7 AES67".to_string(),
+        kind: audio::SourceKind::Aes67 {
+            config: audio::aes67::Aes67FlowConfig {
+                multicast_addr: Ipv4Addr::new(239, 69, 123, 1),
+                port: 5004,
+                payload_type: 96,
+                sample_format: audio::aes67::Aes67SampleFormat::L24,
+                channels: 1,
+                sample_rate: 48_000,
+            },
+        },
+    }
+}
 
 /// ドラッグ&ドロップでSourcesパネルからやり取りされるペイロード
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,7 +113,15 @@ impl OsechiApp {
         let mut audio_source_manager = audio::manager::SourceManager::new();
         audio_source_manager.input_device_scan();
 
-        let mut mixer_channels = Vec::new();
+        let dm7_descriptor = default_dm7_aes67_descriptor();
+        audio_source_manager.add_aes67_flow(dm7_descriptor.clone());
+
+        let mut mixer_channels = vec![MixerChannel {
+            source_id: dm7_descriptor.id,
+            gain: 0.75,
+            muted: false,
+            level: 0.0,
+        }];
         if dev_options.demo_mixer
             && let Some(desc) = audio_source_manager
                 .list()

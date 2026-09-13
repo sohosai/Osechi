@@ -46,9 +46,7 @@ pub struct SapListener {
 impl SapListener {
     pub fn start() -> Option<Self> {
         let socket = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, SAP_PORT)).ok()?;
-        socket
-            .join_multicast_v4(&SAP_ADDR, &Ipv4Addr::UNSPECIFIED)
-            .ok()?;
+        crate::source::audio::join_multicast_all_interfaces(&socket, &SAP_ADDR).ok()?;
         socket.set_read_timeout(Some(RECV_TIMEOUT)).ok()?;
 
         let sessions = Arc::new(Mutex::new(HashMap::new()));
@@ -179,10 +177,9 @@ fn parse_sap_packet(packet: &[u8]) -> Option<SapMessage> {
     let rest = &packet[offset..];
     let sdp_bytes = if rest.starts_with(b"v=") {
         rest
-    } else if let Some(nul_pos) = rest.iter().position(|&b| b == 0) {
-        &rest[nul_pos + 1..]
     } else {
-        return None;
+        let nul_pos = rest.iter().position(|&b| b == 0)?;
+        &rest[nul_pos + 1..]
     };
 
     let sdp = String::from_utf8_lossy(sdp_bytes).into_owned();

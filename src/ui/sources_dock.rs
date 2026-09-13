@@ -364,7 +364,7 @@ fn source_row(
         ui.painter().rect_stroke(
             inner.response.rect.expand(2.0),
             3.0,
-            egui::Stroke::new(1.0, theme::ACCENT_SELECT),
+            egui::Stroke::new(1.0_f32, theme::ACCENT_SELECT),
             egui::StrokeKind::Outside,
         );
     }

@@ -4,6 +4,7 @@ pub mod manager;
 pub mod sap;
 
 use std::collections::VecDeque;
+use std::net::{Ipv4Addr, UdpSocket};
 use std::sync::{Arc, Mutex};
 
 use crate::error::AppError;
@@ -103,7 +104,15 @@ pub trait Stream: Send {
 /// 各 backend の受信スレッドが共有するリングバッファの容量。
 /// バッファが満杯の場合は最古の chunk を捨てて最新を優先する
 /// (詳細は `docs/audio-source.md` のバッファ方針を参照)。
-pub(crate) const RING_BUFFER_CAPACITY: usize = 8;
+///
+/// UI側のドレイン(`capture_all_audio`)は毎フレーム1回しか呼ばれない
+/// (60fpsなら約16.7ms間隔)。AES67はRTPのptime=1msごとに1 chunkをpushする
+/// ため、8のままだと1フレームの間に来る十数chunkの半分以上がドレイン前に
+/// 上書きされ、音声が周期的に欠落してノイズになる。cpal入力デバイスは
+/// 1コールバックのchunkがずっと大きいため元々8で十分だったが、AES67のように
+/// chunk自体が細かいbackendを考慮し、典型的なフレーム間隔+余裕を吸収できる
+/// 値にしている。
+pub(crate) const RING_BUFFER_CAPACITY: usize = 64;
 
 /// リングバッファへ chunk を push する。満杯なら最古の chunk を捨てる。
 pub(crate) fn push_ring_buffer(ring_buffer: &Mutex<VecDeque<AudioChunk>>, chunk: AudioChunk) {
@@ -123,4 +132,46 @@ pub(crate) fn set_last_error(last_error: &Mutex<Option<AppError>>, err: AppError
         return;
     };
     *last_error = Some(err);
+}
+
+/// マルチキャストグループに、ローカルの全IPv4インターフェースでJoinする。
+///
+/// `join_multicast_v4` にインターフェースとして `Ipv4Addr::UNSPECIFIED` を渡すと、
+/// OSがルーティングメトリックのみでインターフェースを選ぶため、WSL/VPN/Tailscale
+/// などの仮想アダプタの方がメトリックが低い場合、そちらでJoinしてしまい、
+/// 実際にDante/AES67機器と繋がっている物理NIC上のマルチキャストパケットが
+/// 一切届かなくなることがある(仮想アダプタはそもそもその機器のセグメントに
+/// 繋がっていないため)。これを避けるため、列挙できた全インターフェースで
+/// 個別にJoinを試みる。1つでも成功すれば良しとし、ループバックや
+/// マルチキャスト非対応のアダプタでの失敗は無視する。
+pub(crate) fn join_multicast_all_interfaces(
+    socket: &UdpSocket,
+    group: &Ipv4Addr,
+) -> Result<(), AppError> {
+    let interfaces = if_addrs::get_if_addrs().unwrap_or_default();
+
+    let mut joined = false;
+    for iface in &interfaces {
+        if iface.is_loopback() {
+            continue;
+        }
+        let std::net::IpAddr::V4(addr) = iface.ip() else {
+            continue;
+        };
+        if socket.join_multicast_v4(group, &addr).is_ok() {
+            joined = true;
+        }
+    }
+
+    // インターフェース列挙に失敗した/1つも成功しなかった場合は、
+    // 従来通りOS任せのJoinにフォールバックする。
+    if !joined {
+        socket
+            .join_multicast_v4(group, &Ipv4Addr::UNSPECIFIED)
+            .map_err(|e| {
+                AppError::Other(format!("Failed to join multicast group {}: {}", group, e))
+            })?;
+    }
+
+    Ok(())
 }

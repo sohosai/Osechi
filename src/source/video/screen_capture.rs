@@ -92,7 +92,7 @@ fn capture_frame(monitor: &Monitor) -> Result<FrameData, AppError> {
 
     // RGBA -> RGB (FrameData はタイトパックの RGB8 を前提とする)
     let mut pixels = Vec::with_capacity(width as usize * height as usize * 3);
-    for px in image.into_raw().chunks_exact(4) {
+    for px in image.into_raw().as_chunks::<4>().0 {
         pixels.extend_from_slice(&px[0..3]);
     }
 

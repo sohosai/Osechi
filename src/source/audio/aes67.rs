@@ -69,14 +69,7 @@ impl Aes67Stream {
     pub fn new(config: Aes67FlowConfig) -> Result<Self, AppError> {
         let socket = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, config.port))
             .map_err(|e| AppError::Other(format!("Failed to bind AES67 UDP socket: {}", e)))?;
-        socket
-            .join_multicast_v4(&config.multicast_addr, &Ipv4Addr::UNSPECIFIED)
-            .map_err(|e| {
-                AppError::Other(format!(
-                    "Failed to join multicast group {}: {}",
-                    config.multicast_addr, e
-                ))
-            })?;
+        audio::join_multicast_all_interfaces(&socket, &config.multicast_addr)?;
         socket.set_read_timeout(Some(RECV_TIMEOUT)).map_err(|e| {
             AppError::Other(format!("Failed to set AES67 socket read timeout: {}", e))
         })?;
@@ -261,11 +254,15 @@ fn parse_rtp_packet(packet: &[u8]) -> Option<(RtpHeader, &[u8])> {
 fn decode_samples(payload: &[u8], format: Aes67SampleFormat) -> Vec<f32> {
     match format {
         Aes67SampleFormat::L16 => payload
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|b| i16::from_be_bytes([b[0], b[1]]) as f32 / 32_768.0)
             .collect(),
         Aes67SampleFormat::L24 => payload
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|b| {
                 let unsigned = ((b[0] as i32) << 16) | ((b[1] as i32) << 8) | (b[2] as i32);
                 // 24bit -> 32bit の符号拡張

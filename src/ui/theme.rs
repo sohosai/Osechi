@@ -24,16 +24,16 @@ pub fn apply(ctx: &egui::Context) {
 
     visuals.panel_fill = BG_PANEL;
     visuals.window_fill = BG_PANEL_HEADER;
-    visuals.window_stroke = Stroke::new(1.0, BORDER);
+    visuals.window_stroke = Stroke::new(1.0_f32, BORDER);
     visuals.hyperlink_color = ACCENT_SELECT;
     visuals.selection.bg_fill = ACCENT_SELECT;
-    visuals.selection.stroke = Stroke::new(1.0, Color32::BLACK);
+    visuals.selection.stroke = Stroke::new(1.0_f32, Color32::BLACK);
 
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, BORDER);
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, BORDER);
     visuals.widgets.inactive.weak_bg_fill = BG_PANEL_HEADER;
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, BORDER);
+    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER);
     visuals.widgets.hovered.weak_bg_fill = BG_ROW_HOVER;
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT_SELECT);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, ACCENT_SELECT);
     visuals.widgets.active.weak_bg_fill = BG_ROW_HOVER;
 
     for widget in [
