@@ -14,16 +14,13 @@ openh264 = "0.9.3"
 mp4 = "0.14.0"
 image = "0.25.10"
 cpal = "0.17.3"
+xcap = "0.7"
 
 #ログ関連
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
-
-[dev-dependencies.cargo-husky]
-version = "1"
-default-features = false
-features = ["precommit-hook","run-cargo-clippy","run-cargo-fmt"]
+if-addrs = "0.15.0"
 
 [profile.dev]
 opt-level = 1
