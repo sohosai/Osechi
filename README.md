@@ -13,7 +13,7 @@ Osechiは、一般的なスペックのPCでも安定して動作する、軽量
 
 ## 外部API
 
-donguriなど外部システムからマスターミュートを操作するためのHTTP APIを、起動時にポート`7878`(環境変数`OSECHI_API_PORT`で変更可能)で提供します。OpenAPIスキーマ・Swagger UIも同ポートから参照できます。詳しくは[ミュートAPI](docs/mute-api.md)を参照してください。
+donguriなど外部システムからマスターミュートを操作するためのHTTP APIを、起動時にポート`7878`(環境変数`OSECHI_API_PORT`で変更可能)で提供します。OpenAPIスキーマ・Swagger UIも同ポートから参照できます。
 
 ## 開発環境
 
