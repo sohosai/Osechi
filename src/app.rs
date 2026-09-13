@@ -93,10 +93,6 @@ pub struct OsechiApp {
     pub master_muted: bool,
     /// マスター(最終ミックス)のレベルメーター用に平滑化された音量(0.0-1.0)。
     pub master_level: f32,
-
-    /// 開発用: 指定されていればレイアウト安定後にスクリーンショットを撮り
-    /// アプリを終了する(`docs/dev-tools.md` 参照)。通常はNone。
-    dev_screenshot: Option<crate::dev::ScreenshotRequester>,
 }
 
 impl OsechiApp {
@@ -154,9 +150,6 @@ impl OsechiApp {
             master_gain: 0.75,
             master_muted: false,
             master_level: 0.0,
-            dev_screenshot: dev_options
-                .screenshot_path
-                .map(crate::dev::ScreenshotRequester::new),
         }
     }
 
@@ -457,10 +450,6 @@ impl eframe::App for OsechiApp {
         self.draw_sources_dock(ui);
         self.draw_audio_mixer_dock(ui);
         self.draw_multiview(ui);
-
-        if let Some(requester) = &mut self.dev_screenshot {
-            requester.tick(&ctx);
-        }
 
         ctx.request_repaint();
     }
