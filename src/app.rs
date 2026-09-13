@@ -1,6 +1,8 @@
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::mixer;
 use crate::source::audio;
@@ -88,9 +90,11 @@ pub struct OsechiApp {
     pub monitor_device_id: Option<cpal::DeviceId>,
     /// 起動時に列挙した音声出力デバイスの一覧(ID・表示名)。
     pub output_devices: Vec<(cpal::DeviceId, String)>,
-    /// マスターフェーダー位置(0.0-1.0)とミュート状態。
+    /// マスターフェーダー位置(0.0-1.0)。
     pub master_gain: f32,
-    pub master_muted: bool,
+    /// マスターミュート状態。ミュートAPI(`crate::api`)のリクエストスレッドと
+    /// UIスレッドの双方から読み書きされるため `Arc<AtomicBool>` で共有する。
+    pub master_muted: Arc<AtomicBool>,
     /// マスター(最終ミックス)のレベルメーター用に平滑化された音量(0.0-1.0)。
     pub master_level: f32,
 }
@@ -111,6 +115,9 @@ impl OsechiApp {
 
         let dm7_descriptor = default_dm7_aes67_descriptor();
         audio_source_manager.add_aes67_flow(dm7_descriptor.clone());
+
+        let master_muted = Arc::new(AtomicBool::new(false));
+        crate::api::spawn_mute_server(Arc::clone(&master_muted));
 
         let mut mixer_channels = vec![MixerChannel {
             source_id: dm7_descriptor.id,
@@ -148,7 +155,7 @@ impl OsechiApp {
             monitor_device_id: None,
             output_devices: mixer::scan_output_devices(),
             master_gain: 0.75,
-            master_muted: false,
+            master_muted,
             master_level: 0.0,
         }
     }
@@ -411,7 +418,7 @@ impl OsechiApp {
         }
 
         if !frame_mix.is_empty() {
-            let master_gain = if self.master_muted {
+            let master_gain = if self.master_muted.load(Ordering::Relaxed) {
                 0.0
             } else {
                 mixer::gain_to_linear(self.master_gain)

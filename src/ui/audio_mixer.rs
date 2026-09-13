@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use eframe::egui::{self, Color32, Rect, Sense, Stroke, StrokeKind, vec2};
 
 use crate::app::{DragPayload, OsechiApp};
@@ -107,13 +109,15 @@ impl OsechiApp {
                         .on_hover_text("Monitor output device");
                     ui.add_space(6.0);
 
+                    let master_muted = self.master_muted.load(Ordering::Relaxed);
+
                     ui.vertical_centered(|ui| {
                         fader_track(
                             ui,
                             vec2(TRACK_WIDTH, FADER_HEIGHT),
                             self.master_level,
                             &mut self.master_gain,
-                            self.master_muted,
+                            master_muted,
                         );
                     });
                     ui.add_space(6.0);
@@ -131,8 +135,8 @@ impl OsechiApp {
                     });
                     ui.add_space(6.0);
 
-                    if mute_button(ui, CHANNEL_WIDTH - 14.0, self.master_muted).clicked() {
-                        self.master_muted = !self.master_muted;
+                    if mute_button(ui, CHANNEL_WIDTH - 14.0, master_muted).clicked() {
+                        self.master_muted.store(!master_muted, Ordering::Relaxed);
                     }
                 });
             });
