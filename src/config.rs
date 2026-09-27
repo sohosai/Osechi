@@ -23,6 +23,8 @@ pub struct Config {
     pub demo_mixer: bool,
     /// 起動時にソース一覧とミキサーへ追加するAES67フロー(表示名, 設定)。
     pub aes67_flows: Vec<(String, aes67::Config)>,
+    /// 配信パネルに最初から入れておくRTMPの送出先(`--rtmp-url rtmp://host/app/stream`)。
+    pub rtmp_url: Option<String>,
 }
 
 impl Default for Config {
@@ -31,6 +33,7 @@ impl Default for Config {
             window_size: [1280.0, 760.0],
             demo_mixer: false,
             aes67_flows: vec![("DM7 AES67".to_string(), DM7)],
+            rtmp_url: None,
         }
     }
 }
@@ -43,6 +46,7 @@ impl Config {
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--demo-mixer" => config.demo_mixer = true,
+                "--rtmp-url" => config.rtmp_url = args.next(),
                 "--window-size" => {
                     if let Some(size) = args.next().as_deref().and_then(parse_size) {
                         config.window_size = size;
@@ -79,9 +83,16 @@ mod tests {
 
     #[test]
     fn parses_flags() {
-        let config = Config::from_args(args(&["--demo-mixer", "--window-size", "800x600"]));
+        let config = Config::from_args(args(&[
+            "--demo-mixer",
+            "--window-size",
+            "800x600",
+            "--rtmp-url",
+            "rtmp://127.0.0.1/live/1A",
+        ]));
         assert!(config.demo_mixer);
         assert_eq!(config.window_size, [800.0, 600.0]);
+        assert_eq!(config.rtmp_url.as_deref(), Some("rtmp://127.0.0.1/live/1A"));
     }
 
     #[test]

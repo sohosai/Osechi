@@ -25,6 +25,12 @@ serde = { version = "1.0.229", features = ["derive"] }
 utoipa = { version = "5.5.0", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
+# 番組出力(RTMP配信)関連。エンコーダはソースからビルドして組み込み、ffmpeg等の外部ツールに頼らない。
+openh264 = "0.9.8"
+fdk-aac = "0.8.0"
+rml_rtmp = "0.8.0"
+bytes = "1"
+
 # 開発ビルド: 依存クレートだけ最適化し、自分のクレートはビルド速度を優先する。
 # (開発ビルドのコード生成バックエンドの指定は nightly 専用なので .cargo/config.toml にある。
 #  このファイルは安定版のCargoでも読めるように保つ。)

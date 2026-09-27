@@ -1,4 +1,4 @@
-use osechi::app::App;
+use osechi::app::{App, Shell};
 use osechi::config::Config;
 
 fn main() -> eframe::Result {
@@ -14,6 +14,6 @@ fn main() -> eframe::Result {
         // ウインドウのタイトルにバージョンを入れる
         concat!("Osechi v", env!("CARGO_PKG_VERSION")),
         options,
-        Box::new(|cc| Ok(Box::new(App::new(&cc.egui_ctx, config)))),
+        Box::new(|cc| Ok(Box::new(Shell::new(App::new(&cc.egui_ctx, config))))),
     )
 }

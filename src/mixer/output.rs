@@ -1,4 +1,4 @@
-//! 合成した音声の出力。UIスレッドが積んだミックスを [`Bus`] 経由で出力デバイスへ渡す。
+//! 合成した音声の出力。エンジンスレッドが積んだミックスを [`Bus`] 経由で出力デバイスや配信へ渡す。
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -12,8 +12,8 @@ use crate::error::{Context, Error, Result};
 /// バスに溜める上限(約0.5秒分)。出力が無い・遅いときに遅延が積み上がらないよう古い方から捨てる。
 const BUS_CAPACITY: usize = SAMPLE_RATE as usize * CHANNELS as usize / 2;
 
-/// 合成済みの音声([`SAMPLE_RATE`]Hz・ステレオのinterleaved)を、UIスレッドから出力デバイスの
-/// コールバック(別スレッド)へ渡すバッファ。
+/// 合成済みの音声([`SAMPLE_RATE`]Hz・ステレオのinterleaved)を、エンジンスレッドから出力デバイスの
+/// コールバックや配信のスレッドへ渡すバッファ。
 #[derive(Clone, Default)]
 pub struct Bus {
     samples: Arc<Mutex<VecDeque<f32>>>,
@@ -34,6 +34,25 @@ impl Bus {
         for slot in out {
             *slot = buffer.pop_front().unwrap_or(0.0);
         }
+    }
+
+    /// 溜まっているサンプル数(フレーム数×チャンネル数)。
+    pub fn len(&self) -> usize {
+        self.samples
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// 古い方から `count` サンプルを捨てる。溜まりすぎた遅延を詰めるのに使う。
+    pub fn skip(&self, count: usize) {
+        let mut buffer = self.samples.lock().unwrap_or_else(PoisonError::into_inner);
+        let count = count.min(buffer.len());
+        buffer.drain(..count);
     }
 }
 
@@ -158,6 +177,16 @@ mod tests {
         let mut out = [1.0; 4];
         bus.pull(&mut out);
         assert_eq!(out, [0.5, 0.5, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn bus_skip_drops_oldest() {
+        let bus = Bus::default();
+        bus.push(&[0.1, 0.2, 0.3]);
+        bus.skip(2);
+        assert_eq!(bus.len(), 1);
+        bus.skip(5);
+        assert!(bus.is_empty());
     }
 
     #[test]

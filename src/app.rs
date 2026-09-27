@@ -1,15 +1,37 @@
-//! アプリ全体の状態と、1フレームごとの処理の順序。
+//! アプリ全体の状態と、処理の順序。
+//!
+//! 状態([`App`])はUIスレッドとエンジンスレッドで共有する。ソースの開閉・音声の合成・番組出力への
+//! 受け渡しはエンジンスレッドが一定間隔で進めるので、ウインドウの最小化やドラッグで描画が止まっても
+//! 音声や配信は止まらない。UIスレッドは描画の間だけ状態をロックする。
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use eframe::egui;
 
 use crate::config::Config;
 use crate::mixer::Mixer;
+use crate::output::{Program, rtmp};
 use crate::source::audio::{self, aes67};
 use crate::source::{Catalog, Live, Origin, SourceId, video};
-use crate::switcher::Switcher;
+use crate::switcher::{Slot, Switcher};
 use crate::ui;
+
+/// エンジンスレッドが [`App::tick`] を呼ぶ間隔。
+///
+/// AES67は1msごとにチャンクが届き、ソースごとに64個まで溜められる(`audio::FEED_CAPACITY`)ので、
+/// それより十分短くする。
+const TICK_INTERVAL: Duration = Duration::from_millis(10);
+
+/// 開いている映像ソースの最新フレーム。
+#[derive(Clone)]
+pub struct Latest {
+    pub frame: Arc<video::Frame>,
+    /// 届くたびに増える番号。UIがテクスチャを更新すべきかの判定に使う。
+    pub serial: u64,
+}
 
 pub struct App {
     /// 利用可能な映像ソース
@@ -20,29 +42,47 @@ pub struct App {
     pub frames: Live<video::Frame>,
     /// 開いている音声ソース(ミキサーに入っているもの)
     pub chunks: Live<audio::Chunk>,
-    /// 開いている映像ソースの最新フレーム
-    pub textures: HashMap<SourceId, egui::TextureHandle>,
+    /// 開いている映像ソースごとの最新フレーム
+    pub latest: HashMap<SourceId, Latest>,
+    /// UIに表示するテクスチャと、その元になった [`Latest::serial`]
+    pub textures: HashMap<SourceId, (u64, egui::TextureHandle)>,
     pub switcher: Switcher,
     pub mixer: Mixer,
+    /// 番組出力(PGMの映像とマスター音声)
+    pub program: Program,
+    /// RTMP配信
+    pub rtmp: rtmp::Rtmp,
     pub ui: ui::State,
     /// SAPによるAES67フローの自動検出(SAPのポートが使えなければ無効)
     discovery: Option<aes67::Discovery>,
+    next_serial: u64,
 }
 
 impl App {
     pub fn new(ctx: &egui::Context, config: Config) -> Self {
         ui::theme::install(ctx);
 
+        let mixer = Mixer::new();
+        let program = Program::new(mixer.program_audio());
+        let mut ui = ui::State::default();
+        if let Some(url) = config.rtmp_url {
+            ui.rtmp.url = url;
+        }
+
         let mut app = Self {
             video: Catalog::default(),
             audio: Catalog::default(),
             frames: Live::default(),
             chunks: Live::default(),
+            latest: HashMap::new(),
             textures: HashMap::new(),
             switcher: Switcher::default(),
-            mixer: Mixer::new(),
-            ui: ui::State::default(),
+            mixer,
+            program,
+            rtmp: rtmp::Rtmp::default(),
+            ui,
             discovery: aes67::Discovery::start(),
+            next_serial: 0,
         };
         app.rescan();
 
@@ -70,46 +110,117 @@ impl App {
         self.audio.sync(Origin::Scanned, audio::scan());
     }
 
-    /// 1フレーム分の入出力を進める。
-    /// ソース一覧の更新 → 使われているソースの開閉 → 映像の取り込み → 音声の合成の順。
-    fn tick(&mut self, ctx: &egui::Context) {
+    /// 入出力を1回分進める。エンジンスレッドが [`TICK_INTERVAL`] ごとに呼ぶ。
+    /// ソース一覧の更新 → 使われているソースの開閉 → 映像の取り込み → 音声の合成 → 番組出力への受け渡しの順。
+    fn tick(&mut self) {
         if let Some(discovery) = &mut self.discovery {
             self.audio.sync(Origin::Discovered, discovery.sources());
         }
         self.frames.sync(&self.video, self.switcher.sources());
         self.chunks.sync(&self.audio, self.mixer.sources());
-        self.upload_frames(ctx);
+        self.collect_frames();
         self.mixer.process(&self.chunks);
+
+        let program = self.switcher[Slot::Program]
+            .as_ref()
+            .and_then(|id| self.latest.get(id))
+            .map(|latest| Arc::clone(&latest.frame));
+        self.program.set_frame(program);
     }
 
-    /// 開いている映像ソースごとに、届いた最新のフレームをテクスチャにする。
-    fn upload_frames(&mut self, ctx: &egui::Context) {
-        self.textures.retain(|id, _| self.frames.contains(id));
+    /// 開いている映像ソースごとに、届いた最新のフレームを取っておく。
+    fn collect_frames(&mut self) {
+        self.latest.retain(|id, _| self.frames.contains(id));
         for id in self.frames.ids() {
-            let Some(frame) = self.frames.drain(id).last() else {
+            if let Some(frame) = self.frames.drain(id).last() {
+                self.next_serial += 1;
+                let latest = Latest {
+                    frame: Arc::new(frame),
+                    serial: self.next_serial,
+                };
+                self.latest.insert(id.clone(), latest);
+            }
+        }
+    }
+
+    /// 最新フレームが変わったソースのテクスチャを更新する。UIスレッドから呼ぶ。
+    fn upload_textures(&mut self, ctx: &egui::Context) {
+        self.textures.retain(|id, _| self.latest.contains_key(id));
+        for (id, latest) in &self.latest {
+            if self
+                .textures
+                .get(id)
+                .is_some_and(|(serial, _)| *serial == latest.serial)
+            {
                 continue;
-            };
+            }
+            let frame = &latest.frame;
             let size = [frame.width() as usize, frame.height() as usize];
             let image = egui::ColorImage::from_rgb(size, frame.as_raw());
             match self.textures.get_mut(id) {
-                Some(texture) => texture.set(image, egui::TextureOptions::LINEAR),
+                Some((serial, texture)) => {
+                    texture.set(image, egui::TextureOptions::LINEAR);
+                    *serial = latest.serial;
+                }
                 None => {
                     let texture = ctx.load_texture(
                         format!("source:{id}"),
                         image,
                         egui::TextureOptions::LINEAR,
                     );
-                    self.textures.insert(id.clone(), texture);
+                    self.textures.insert(id.clone(), (latest.serial, texture));
                 }
             }
         }
     }
 }
 
-impl eframe::App for App {
+fn lock(app: &Mutex<App>) -> MutexGuard<'_, App> {
+    app.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// eframeから呼ばれる窓口。状態を共有し、エンジンスレッドを動かす。
+pub struct Shell {
+    app: Arc<Mutex<App>>,
+}
+
+impl Shell {
+    pub fn new(app: App) -> Self {
+        let app = Arc::new(Mutex::new(app));
+        let weak = Arc::downgrade(&app);
+        thread::Builder::new()
+            .name("engine".to_string())
+            .spawn(move || run_engine(weak))
+            .expect("failed to spawn engine thread");
+        Self { app }
+    }
+}
+
+/// [`TICK_INTERVAL`] ごとに [`App::tick`] を呼び続ける。状態が破棄されたら終わる。
+fn run_engine(app: Weak<Mutex<App>>) {
+    let mut next = Instant::now();
+    loop {
+        let Some(app) = app.upgrade() else {
+            return;
+        };
+        lock(&app).tick();
+        drop(app);
+
+        next += TICK_INTERVAL;
+        let now = Instant::now();
+        match next.checked_duration_since(now) {
+            Some(wait) => thread::sleep(wait),
+            // 大きく遅れたら追いつこうとせず、今から数え直す
+            None => next = now,
+        }
+    }
+}
+
+impl eframe::App for Shell {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.tick(ui.ctx());
-        ui::show(self, ui);
+        let mut app = lock(&self.app);
+        app.upload_textures(ui.ctx());
+        ui::show(&mut app, ui);
         ui.ctx().request_repaint();
     }
 }

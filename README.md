@@ -8,16 +8,6 @@ Osechiは、一般的なスペックのPCでも安定して動作する、軽量
 - **安定性と軽量さ**: 従来のOBSの代替となる安定性を確保しつつ、一般的なPC環境でも軽快に動作します。
 - **手軽なLAN内伝送**: 独自の軽量な通信プロトコルを実装し、ローカルネットワーク内で手軽かつ低遅延な映像伝送を実現します。
 - **マルチプラットフォーム**: 特定のOSに依存しない設計により、幅広い環境で柔軟に運用できます。
-
-詳しくは[ロードマップ](docs/roadmap.md)を参照してください。
-
 ## 外部API
 
-donguriなど外部システムからマスターミュートを操作するためのHTTP APIを、起動時にポート`7878`(環境変数`OSECHI_API_PORT`で変更可能)で提供します。OpenAPIスキーマ・Swagger UIも同ポートから参照できます。
-
-## 開発環境
-
-開発ビルドは高速化のため nightly のRustを使います(`rust-toolchain.toml` により、初回の `cargo` 実行時に rustup が自動でインストールします)。Linuxでは追加で `clang` と `mold` が必要です。
-
-- 開発ビルド: 依存クレートだけを最適化し、rustc の並列フロントエンドと高速なリンカーを使います(`.cargo/config.toml`)。
-- リリースビルド: CIで nightly 専用の設定を外し、安定版のRust(LLVM・`opt-level = 3`・fat LTO)でビルドします(`.github/workflows/release.yml`)。
+donguriなど外部システムからマスターミュートを操作するためのHTTP APIを、起動時にポート`7878`(環境変数`OSECHI_API_PORT`で変更可能)で提供します。OpenAPIスキーマ・Swagger UIも同ポートから参照できます。詳しくは[ミュートAPI](docs/mute-api.md)を参照してください。
