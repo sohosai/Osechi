@@ -131,7 +131,7 @@ fn paint_cell(
         painter.rect_filled(rect, 2.0, color.gamma_multiply(0.12));
     }
 
-    if let Some(texture) = source.and_then(|id| app.textures.get(id)) {
+    if let Some((_, texture)) = source.and_then(|id| app.textures.get(id)) {
         painter.image(
             texture.id(),
             rect,

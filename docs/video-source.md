@@ -2,123 +2,168 @@
 
 映像ソースの検出・管理・ストリーミングに関わる型の設計ドキュメント。
 
+映像と音声は `source/` の共通の骨格(`Source` / `Catalog` / `Open` / `Feed` / `Live`)で扱う。
+骨格そのものは[音声ソース](audio-source.md)と共通なので、ここでは共通部分と映像固有の部分を説明する。
+
 ## モジュール構成
 
 ```
-source/video/
-├── mod.rs          型定義（SourceId, FrameData, SourceKind, Descriptor, Stream）
-├── manager.rs      SourceManager（ソースの検出と管理）
-└── web_camera.rs   WebCameraStream（WEBカメラの Stream 実装）
+source/
+├── mod.rs        共通の型(SourceId, Origin, Source, Open)
+├── catalog.rs    Catalog(利用可能なソースの一覧)
+├── live.rs       Live(いま開いているソースの集合)
+├── feed.rs       Feed / Producer(取得スレッド → エンジンスレッドの経路)
+└── video/
+    ├── mod.rs      Frame, Kind, scan()
+    ├── camera.rs   Webカメラ(nokhwa)
+    └── screen.rs   画面キャプチャ(xcap)
 ```
 
-## 型一覧
+## 共通の型
 
 ### `SourceId`
 
-映像ソースを一意に識別する enum。
+ソースを一意に識別するID。`SourceId::new(scheme, key)` で `"<scheme>:<key>"` の形に作る。
 
-```rust
-pub enum SourceId {
-    WebCamera(String),
-    // 将来: Ndi(...), DesktopCapture(...), ...
-}
-```
+| 方式 | 例 |
+|---|---|
+| Webカメラ | `camera:<表示名>_<index>` |
+| 画面キャプチャ | `screen:<モニターID>` |
 
-- `as_string()` でテクスチャ名生成などに使える文字列表現を取得できる
+- `Display` を実装し、ログやテクスチャ名(`source:<id>`)に使う
 - `Clone`, `Hash`, `Eq` を実装しており、`HashMap` のキーとして利用可能
 
-### `FrameData`
+### `Origin`
 
-映像の 1 フレームを表す。ピクセルデータは `Arc<Vec<u8>>` で保持され、複数箇所から安価に共有できる。
+ソースが一覧に載った経緯。`Catalog::sync` がどの範囲を入れ替えてよいかを決める。
 
-```rust
-pub struct FrameData {
-    pub pixels: Arc<Vec<u8>>,  // RGB バイト列
-    pub width: u32,
-    pub height: u32,
-}
-```
+| 値 | 意味 | 消えるとき |
+|---|---|---|
+| `Scanned` | デバイスのスキャンで見つかった | 再スキャンで見つからなかったとき |
+| `Manual` | ユーザーや起動設定が追加した | 明示的に削除したとき |
+| `Discovered` | SAP の告知で見つかった(音声のみ) | 告知が途絶えたとき |
 
-### `SourceKind`
+### `Source<K>`
 
-ソース種別ごとのハードウェア固有パラメータを保持する enum。`Descriptor` のフィールドとして使われる。
-
-```rust
-pub enum SourceKind {
-    WebCamera { index: CameraIndex },
-    // 将来: Ndi { ... }, DesktopCapture { ... }, ...
-}
-```
-
-### `Descriptor`
-
-映像ソースの **設計図**。ストリームを開かなくても取得できるメタ情報（ID・名前・種別）を保持する。
+ソースの情報。ストリームを開かなくても分かるものだけを持ち、軽量で `Clone` できる。
+`K` は映像なら `video::Kind`、音声なら `audio::Kind`。
 
 ```rust
-pub struct Descriptor {
+pub struct Source<K> {
     pub id: SourceId,
     pub name: String,
-    pub kind: SourceKind,
+    pub kind: K,
+    pub origin: Origin,
 }
 ```
 
-- `Clone` 可能で軽量。UI での一覧表示や選択状態の保持に使う
-- `open()` を呼ぶと、`SourceKind` に応じた具体的な `Stream` を生成して返す
+### `Open`（トレイト）
 
-### `Stream`（トレイト）
-
-ハードウェアデバイスへの接続を保持し、フレームを取得するためのトレイト。
+種別からデータの経路 `Feed` を開く。開くと取得処理(スレッドやOSのコールバック)が動き出し、
+返した `Feed` を drop すると止まる。
 
 ```rust
-pub trait Stream: Send {
-    fn get_frame(&mut self) -> Result<Option<FrameData>, AppError>;
+pub trait Open {
+    type Output;
+    fn open(&self) -> Result<Feed<Self::Output>>;
 }
 ```
 
-- `Ok(Some(frame))` — 新しいフレームが利用可能
-- `Ok(None)` — まだ届いていない（ノンブロッキング）
-- `Err(e)` — ストリームエラー
-- drop 時にハードウェア接続が自動切断される
+### `Feed<T>` / `Producer<T>`
 
-### `SourceManager`（`manager.rs`）
+取得処理からエンジンスレッドへデータを渡す経路。`Feed::new(capacity)` で作る。
+`Feed::spawn(capacity, run)` を使うと、取得処理 `run` を専用スレッドで動かして受信口を返す。
 
-映像ソースの検出と管理を担当する。
+- 容量を超えたら**古いものから捨てる**(ライブ用途では遅延の積み上がりより最新への追従を優先する)
+- `Feed::try_iter()` で届いているデータを古い順に全て取り出す(ブロックしない)
+- 失敗はデータとは別に「直近のエラー」として持ち、次に成功すると消える(`Feed::error()`)
+- `Feed` が drop されると `Producer::send` / `Producer::is_open` が `false` を返すので、取得処理はそこで終了する
+- `Feed::with_guard(x)` で、`Feed` が生きている間だけ保持する資源(OSのストリームなど)を持たせられる
 
-```rust
-pub struct SourceManager {
-    web_cameras: Vec<Descriptor>,
-}
-```
+### `Catalog<K>`
+
+利用可能なソースの一覧。IDの重複は持たない。
 
 | メソッド | 説明 |
-|---------|------|
-| `web_camera_scan()` | OS から WEB カメラを検出し、`Descriptor` のリストを更新する |
-| `web_camera_list()` | 最新のスキャン結果を `&[Descriptor]` で返す |
-| `open(source_id)` | 指定 ID のソースを開き、`Box<dyn Stream>` を返す |
+|---|---|
+| `get(id)` / `name(id)` | 参照・表示名(無ければ `"Unknown"`) |
+| `insert(source)` | 追加する。同じIDがあれば何もしない |
+| `remove(id)` | 削除する |
+| `sync(origin, fresh)` | `origin` 由来のソースを `fresh` の内容に入れ替える。他の由来で同じIDがあればそちらを優先する |
+
+### `Live<T>`
+
+いま開いているソースの集合。`sync(catalog, wanted)` で、`wanted` のソースだけを開いた状態に保つ。
+
+- `wanted` に無くなったソースは `Feed` を drop して閉じる
+- 新しく必要になったソースは `catalog` から `Open::open` で開く
+- 開くのに失敗したソースはエラーを持ったまま、使われなくなるまで再試行しない
+- `drain(id)` でデータを取り出し、`errors()` で失敗しているソースと理由を得る
+
+## 映像固有の型
+
+### `Frame`
+
+映像の1フレーム。RGB8 の画像。
+
+```rust
+pub type Frame = image::RgbImage;
+```
+
+### `Kind`
+
+映像ソースの種別と、開くのに必要な情報。`Open` を実装する。
+
+```rust
+pub enum Kind {
+    Camera(nokhwa::utils::CameraIndex), // Webカメラ
+    Screen(u32),                        // 画面キャプチャ(モニターID)
+}
+```
+
+### `scan()`
+
+接続されている映像ソース(Webカメラ + モニター)を全て探し、`Origin::Scanned` の `Source` を返す。
+
+## 各方式
+
+| 方式 | モジュール | 取り込み |
+|---|---|---|
+| Webカメラ | `camera.rs` | 専用スレッドで `nokhwa` から連続取得。1280x720 以上で最高解像度を要求する |
+| 画面キャプチャ | `screen.rs` | 専用スレッドで `xcap` からモニター全体を約15fps(66ms間隔)で取得 |
+
+`Feed` の容量は2(`FEED_CAPACITY`)。使うのは最新の1枚だけなので最小限にしている。
 
 ## ライフサイクル
 
 ```mermaid
 graph LR
-    SM["SourceManager"] -->|"web_camera_scan()"| D["Descriptor (設計図)"]
-    D -->|"open()"| S["Stream (接続中)"]
-    D -.-|"UI で一覧表示・選択"| UI["UI Layer"]
-    S -.-|"get_frame()"| F["FrameData"]
-    S -.-|"drop"| X["自動切断"]
+    SCAN["video::scan()"] -->|"Catalog::sync(Scanned)"| C["Catalog (一覧)"]
+    C -.-|"UI で一覧表示・ドラッグ"| SW["Switcher (スロット割り当て)"]
+    SW -->|"sources()"| L["Live::sync"]
+    C --> L
+    L -->|"Kind::open()"| F["Feed (取得中)"]
+    F -.-|"drain()"| LT["App::latest (最新フレーム)"]
+    LT -.-> T["テクスチャ(UI)"]
+    LT -.-> P["Program(PGM のみ、配信へ)"]
+    F -.-|"drop"| X["取得スレッド終了"]
 ```
 
-1. `SourceManager::web_camera_scan()` で OS に問い合わせ、`Descriptor` 一覧を取得
-2. UI 側は `Descriptor`（Clone 可能）を使って一覧表示・選択
-3. ユーザーが選択したソースに対して `Descriptor::open()` を呼び、`Box<dyn Stream>` を取得
-4. 毎フレーム `stream.get_frame()` で映像データを取得
-5. 不要になった `Stream` は drop するだけで接続が自動切断
+1. 起動時とソース一覧の **Rescan** で `video::scan()` を呼び、`Catalog::sync(Origin::Scanned, ..)` で一覧を更新する
+2. UI のソース一覧からマルチビューのスロットへドラッグすると、`Switcher` に `SourceId` が割り当てられる
+3. エンジンスレッドが 10ms ごとに `Live::sync(&catalog, switcher.sources())` を呼び、どこかのスロットに出ているソースだけを開く
+4. 同じくエンジンスレッドが、各ソースの最新フレームを `App::latest` に取っておく。PGM のフレームは番組出力(`output::Program`)にも置く
+5. UI スレッドは描画のたびに、`latest` のうち変わったものだけを egui のテクスチャに上げる
+6. どのスロットからも外れたソースは `Live::sync` で `Feed` が drop され、取得スレッドが止まる
 
 ## 新しい映像ソースの追加方法
 
 例: NDI ソースを追加する場合
 
-1. `SourceId` に `Ndi(String)` バリアントを追加
-2. `SourceKind` に `Ndi { ... }` バリアントを追加
-3. `source/video/ndi.rs` を作成し、`NdiStream` 構造体と `impl Stream` を実装
-4. `Descriptor::open()` の match に `SourceKind::Ndi` 分岐を追加
-5. `SourceManager` にスキャンロジックを追加
+1. `source/video/ndi.rs` を作り、次の2つを `pub(super)` で実装する
+   - `scan() -> Vec<Source<Kind>>`: `SourceId::new("ndi", ..)` で ID を付け、`Origin::Scanned` で返す(スキャンできない方式なら不要)
+   - `open(..) -> Result<Feed<Frame>>`: `Feed::spawn(FEED_CAPACITY, ..)` の中で取得し、`producer.send(..)` が `false` を返したら終了する
+2. `video/mod.rs` の `Kind` に `Ndi { .. }` バリアントを追加する
+3. `impl Open for Kind` の match に `Kind::Ndi` の分岐を追加する
+4. `video::scan()` に `ndi::scan()` を連結する
+5. `ui/widget.rs` の `Chip::video` に表示名(`NDI` など)を追加する

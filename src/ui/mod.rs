@@ -7,6 +7,7 @@ mod errors;
 mod menu;
 mod mixer;
 mod multiview;
+mod output;
 mod sources;
 pub mod theme;
 mod widget;
@@ -29,6 +30,10 @@ pub struct State {
     pub show_labels: bool,
     /// 「Add AES67 Source」ダイアログの入力中の内容(閉じていれば `None`)
     aes67_form: Option<sources::Aes67Form>,
+    /// 配信ウインドウを開いているか
+    output_open: bool,
+    /// 配信設定の入力中の内容
+    pub(crate) rtmp: output::RtmpForm,
 }
 
 impl Default for State {
@@ -36,6 +41,8 @@ impl Default for State {
         Self {
             show_labels: true,
             aes67_form: None,
+            output_open: false,
+            rtmp: output::RtmpForm::default(),
         }
     }
 }
@@ -48,4 +55,5 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     sources::show(app, ui);
     mixer::show(app, ui);
     multiview::show(app, ui);
+    output::show(app, ui.ctx());
 }

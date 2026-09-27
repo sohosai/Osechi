@@ -1,4 +1,4 @@
-//! 取得処理(バックグラウンドのスレッドやOSのコールバック)からUIスレッドへデータを渡す経路。
+//! 取得処理(バックグラウンドのスレッドやOSのコールバック)からエンジンスレッドへデータを渡す経路。
 //!
 //! ライブ用途では遅延が積み上がるより最新に追いつく方が大事なので、容量を超えたら
 //! 古いものから捨てる。受信側の [`Feed`] が drop されると送信側の [`Producer`] は
@@ -25,7 +25,7 @@ fn lock<T>(shared: &Shared<T>) -> MutexGuard<'_, Queue<T>> {
     shared.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// UIスレッド側の受信口。drop すると取得処理に停止を伝え、保持していた資源も解放する。
+/// 受け取る側(エンジンスレッド)の受信口。drop すると取得処理に停止を伝え、保持していた資源も解放する。
 pub struct Feed<T> {
     shared: Arc<Shared<T>>,
     _guard: Option<Box<dyn Send>>,

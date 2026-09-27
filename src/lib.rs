@@ -9,6 +9,7 @@ pub mod error;
 pub mod log;
 pub mod mixer;
 pub mod net;
+pub mod output;
 pub mod source;
 pub mod switcher;
 pub mod ui;

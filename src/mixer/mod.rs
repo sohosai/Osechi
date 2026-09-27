@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use dsp::level_to_meter;
+pub use output::Bus;
 
 use crate::source::audio::Chunk;
 use crate::source::{Live, SourceId};
@@ -83,7 +84,10 @@ pub struct Mixer {
     remote_mute: Arc<AtomicBool>,
     /// 前のフレームで `remote_mute` と揃えたときの値。どちらが変えたかの判定に使う。
     remote_mute_seen: bool,
+    /// モニター出力へ渡す合成結果
     bus: output::Bus,
+    /// 番組出力(配信)へ渡す合成結果
+    program: output::Bus,
     monitor: output::Monitor,
     outputs: Vec<(cpal::DeviceId, String)>,
 }
@@ -103,6 +107,7 @@ impl Mixer {
             remote_mute: Arc::new(AtomicBool::new(false)),
             remote_mute_seen: false,
             bus: output::Bus::default(),
+            program: output::Bus::default(),
             monitor: output::Monitor::default(),
             outputs: output::devices(),
         }
@@ -138,6 +143,11 @@ impl Mixer {
         Arc::clone(&self.remote_mute)
     }
 
+    /// 番組出力(配信)へ渡す合成結果。マスターのフェーダー・ミュートを通した後の音声。
+    pub fn program_audio(&self) -> Bus {
+        self.program.clone()
+    }
+
     /// 選べる出力デバイス(ID・表示名)。
     pub fn outputs(&self) -> &[(cpal::DeviceId, String)] {
         &self.outputs
@@ -155,7 +165,7 @@ impl Mixer {
         }
     }
 
-    /// このフレームに届いた音声を合成してモニターへ送り、メーターを更新する。
+    /// 前回から届いた音声を合成してモニターと番組出力へ送り、メーターを更新する。
     pub fn process(&mut self, feeds: &Live<Chunk>) {
         self.sync_remote_mute();
 
@@ -191,6 +201,7 @@ impl Mixer {
         }
         self.master.meter(Some(dsp::peak(&mix)));
         self.bus.push(&mix);
+        self.program.push(&mix);
     }
 
     /// UIでのマスターミュート操作と、外部APIからの操作を揃える。
@@ -219,6 +230,7 @@ mod tests {
             remote_mute: Arc::new(AtomicBool::new(false)),
             remote_mute_seen: false,
             bus: output::Bus::default(),
+            program: output::Bus::default(),
             monitor: output::Monitor::default(),
             outputs: Vec::new(),
         }
