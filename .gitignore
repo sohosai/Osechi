@@ -1,4 +1,2 @@
 /target
-/.cargo/config.toml
-/.cargo/config
 /logs

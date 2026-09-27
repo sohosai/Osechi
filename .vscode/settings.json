@@ -1,5 +1,6 @@
 {
 	"rust-analyzer.cargo.targetDir": true,
 	"rust-analyzer.procMacro.enable": false,
-	"rust-analyzer.check.command": "clippy"
+	"rust-analyzer.check.command": "check",
+	"rust-analyzer.cargo.allTargets": false
 }

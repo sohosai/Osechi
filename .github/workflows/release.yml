@@ -29,6 +29,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # `cargo metadata` がリポジトリの nightly 前提の設定(.cargo/config.toml)を読むため nightly を使う
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
       - name: Install cargo-edit
         uses: taiki-e/install-action@v2
         with:
@@ -80,6 +84,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
+
+      # リリースは安定版のRustでビルドする。開発ビルド高速化用の nightly 専用設定を外す
+      # (外したファイルはこのジョブ内でしか使わず、コミットはしない)。
+      - name: Use stable toolchain for release
+        shell: bash
+        run: rm -f .cargo/config.toml rust-toolchain.toml
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable

@@ -25,13 +25,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: clippy
 
       - name: Install build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libegl-dev libpipewire-0.3-dev libgbm-dev
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libegl-dev libpipewire-0.3-dev libgbm-dev clang mold
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2

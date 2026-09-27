@@ -67,7 +67,7 @@ fn build_router(is_muted: Arc<AtomicBool>) -> Router {
 /// ブロックしないよう、独立したOSスレッド上でTokioランタイムを立てて
 /// サーバーを動かす。ポートのbindに失敗した場合(使用中など)は
 /// エラーをログに出すのみで、アプリ本体の起動は妨げない。
-pub fn spawn_mute_server(is_muted: Arc<AtomicBool>) {
+pub fn spawn(is_muted: Arc<AtomicBool>) {
     std::thread::spawn(move || {
         let runtime = match tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
