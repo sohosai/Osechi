@@ -1,4 +1,5 @@
-//! 合成した音声の出力。エンジンスレッドが積んだミックスを [`Bus`] 経由で出力デバイスや配信へ渡す。
+//! 合成した音声の出力。エンジンスレッドが積んだミックスを [`Bus`] 経由で出力デバイスへ、
+//! [`Fanout`] 経由で配信・録画へ渡す。
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -53,6 +54,35 @@ impl Bus {
         let mut buffer = self.samples.lock().unwrap_or_else(PoisonError::into_inner);
         let count = count.min(buffer.len());
         buffer.drain(..count);
+    }
+}
+
+/// 合成結果を複数の受け手(配信・録画)へ配る。受け手は [`Fanout::subscribe`] で自分用の [`Bus`] を得て、
+/// その [`Bus`] を drop すれば配られなくなる。
+#[derive(Clone, Default)]
+pub struct Fanout {
+    buses: Arc<Mutex<Vec<Bus>>>,
+}
+
+impl Fanout {
+    /// 受け手を加える。返した [`Bus`] には、これ以降の合成結果が積まれる。
+    pub fn subscribe(&self) -> Bus {
+        let bus = Bus::default();
+        self.lock().push(bus.clone());
+        bus
+    }
+
+    /// 全ての受け手に積む。受け手が drop した [`Bus`] はここで取り除く。
+    pub fn push(&self, samples: &[f32]) {
+        let mut buses = self.lock();
+        buses.retain(|bus| Arc::strong_count(&bus.samples) > 1);
+        for bus in buses.iter() {
+            bus.push(samples);
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Bus>> {
+        self.buses.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -187,6 +217,20 @@ mod tests {
         assert_eq!(bus.len(), 1);
         bus.skip(5);
         assert!(bus.is_empty());
+    }
+
+    #[test]
+    fn fanout_delivers_to_every_live_subscriber() {
+        let fanout = Fanout::default();
+        let first = fanout.subscribe();
+        let second = fanout.subscribe();
+        fanout.push(&[0.5]);
+        assert_eq!((first.len(), second.len()), (1, 1));
+
+        drop(second);
+        fanout.push(&[0.5]);
+        assert_eq!(first.len(), 2);
+        assert_eq!(fanout.lock().len(), 1);
     }
 
     #[test]

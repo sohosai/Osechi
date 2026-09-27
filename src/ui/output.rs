@@ -97,7 +97,7 @@ fn rtmp_panel(app: &mut App, ui: &mut egui::Ui) {
         match app.ui.rtmp.settings() {
             Ok(settings) => {
                 app.ui.rtmp.error = None;
-                app.rtmp.start(settings, app.program.clone());
+                app.rtmp.start(settings, app.taps.clone());
             }
             Err(err) => app.ui.rtmp.error = Some(err),
         }
@@ -164,7 +164,7 @@ pub(super) fn indicator(app: &App, ui: &mut egui::Ui) {
 }
 
 /// `01:02:03` の形にする。
-fn format_duration(duration: Duration) -> String {
+pub(super) fn format_duration(duration: Duration) -> String {
     let secs = duration.as_secs();
     format!("{:02}:{:02}:{:02}", secs / 3600, secs / 60 % 60, secs % 60)
 }

@@ -8,6 +8,7 @@ mod menu;
 mod mixer;
 mod multiview;
 mod output;
+mod record;
 mod sources;
 pub mod theme;
 mod widget;
@@ -34,6 +35,10 @@ pub struct State {
     output_open: bool,
     /// 配信設定の入力中の内容
     pub(crate) rtmp: output::RtmpForm,
+    /// 録画ウインドウを開いているか
+    record_open: bool,
+    /// 録画設定の入力中の内容
+    recording: record::RecordForm,
 }
 
 impl Default for State {
@@ -43,6 +48,8 @@ impl Default for State {
             aes67_form: None,
             output_open: false,
             rtmp: output::RtmpForm::default(),
+            record_open: false,
+            recording: record::RecordForm::default(),
         }
     }
 }
@@ -56,4 +63,5 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     mixer::show(app, ui);
     multiview::show(app, ui);
     output::show(app, ui.ctx());
+    record::show(app, ui.ctx());
 }

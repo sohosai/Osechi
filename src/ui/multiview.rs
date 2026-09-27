@@ -167,6 +167,9 @@ fn paint_cell(
     if app.ui.show_labels {
         paint_label(painter, rect, label);
     }
+    if app.recorder.is_recording_slot(slot) {
+        paint_rec(painter, rect);
+    }
 
     matches!(slot, Slot::Input(_))
         && source.is_some()
@@ -209,6 +212,23 @@ fn paint_tag(painter: &Painter, rect: Rect, slot: Slot) {
     );
     painter.rect_filled(tag, 2.0, theme::slot_color(slot));
     painter.galley(tag.min + padding, galley, ink);
+}
+
+/// 録画中のセルの右上(Input の割り当て解除ボタンの左)に「● REC」を描く。
+fn paint_rec(painter: &Painter, rect: Rect) {
+    let galley = painter.layout_no_wrap(
+        "● REC".to_string(),
+        egui::FontId::proportional(10.0),
+        Color32::WHITE,
+    );
+    let padding = vec2(6.0, 2.0);
+    let size = galley.size() + padding * 2.0;
+    let badge = Rect::from_min_size(
+        egui::pos2(rect.max.x - 28.0 - size.x, rect.min.y + 8.0),
+        size,
+    );
+    painter.rect_filled(badge, 2.0, theme::ACCENT_PROGRAM);
+    painter.galley(badge.min + padding, galley, Color32::WHITE);
 }
 
 /// セルの下中央に、半透明の背景付きでラベルを描く。
