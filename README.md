@@ -17,4 +17,7 @@ donguriなど外部システムからマスターミュートを操作するた�
 
 ## 開発環境
 
-本プロジェクトの開発には **Rust 1.9.5以上** が必要です。高速化の設定については、[高速なビルドに関する情報](docs/fast-build.md) を参照してください。
+開発ビルドは高速化のため nightly のRustを使います(`rust-toolchain.toml` により、初回の `cargo` 実行時に rustup が自動でインストールします)。Linuxでは追加で `clang` と `mold` が必要です。
+
+- 開発ビルド: 依存クレートだけを最適化し、rustc の並列フロントエンドと高速なリンカーを使います(`.cargo/config.toml`)。
+- リリースビルド: CIで nightly 専用の設定を外し、安定版のRust(LLVM・`opt-level = 3`・fat LTO)でビルドします(`.github/workflows/release.yml`)。

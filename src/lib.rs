@@ -1,22 +1,14 @@
-/// donguriなど外部システムからのHTTP操作(ミュートAPI等)を受け付けるモジュール
+//! Osechi: 軽量な映像スイッチング・伝送ソフトウエア。
+//!
+//! モジュール構成と、コードを書くときの規約は `docs/architecture.md` を参照。
+
 pub mod api;
-
 pub mod app;
-
-/// 開発・デザイン確認用のコマンドラインオプション
-pub mod dev;
-
-/// Osechi全体のエラーをまとめたEnum
+pub mod config;
 pub mod error;
-
-/// カメラ,ログ,ウインドウなどの初期化処理をまとめたモジュール
-pub mod init;
-
-/// オーディオミキサーの実音声合成(ダウンミックス・リサンプル・出力)をまとめたモジュール
+pub mod log;
 pub mod mixer;
-
-/// 映像や音声などの入力をまとめたモジュール
+pub mod net;
 pub mod source;
-
-/// UIのパーツをまとめたモジュール
+pub mod switcher;
 pub mod ui;

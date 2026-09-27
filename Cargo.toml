@@ -5,13 +5,7 @@ edition = "2024"
 
 [dependencies]
 eframe = "0.34.2"
-rayon = "1.1"
 nokhwa = { version = "0.10", features = ["input-native"] }
-num_cpus = "1.16"
-rfd = "0.17.2"
-chrono = "0.4.44"
-openh264 = "0.9.3"
-mp4 = "0.14.0"
 image = "0.25.10"
 cpal = "0.17.3"
 xcap = "0.7"
@@ -20,6 +14,8 @@ xcap = "0.7"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
+
+# ネットワーク(AES67のマルチキャスト受信)関連
 if-addrs = "0.15.0"
 
 # 外部API(donguri等からのミュートAPI等)関連
@@ -29,14 +25,19 @@ serde = { version = "1.0.229", features = ["derive"] }
 utoipa = { version = "5.5.0", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
+# 開発ビルド: 依存クレートだけ最適化し、自分のクレートはビルド速度を優先する。
+# (開発ビルドのコード生成バックエンドの指定は nightly 専用なので .cargo/config.toml にある。
+#  このファイルは安定版のCargoでも読めるように保つ。)
 [profile.dev]
-opt-level = 1
+opt-level = 0
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 3
 
+# リリースビルド: 実行速度を最優先に最適化する。安定版のRust(LLVM)でビルドする。
 [profile.release]
-opt-level = 'z'
+opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true

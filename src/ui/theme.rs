@@ -1,4 +1,10 @@
+//! 配色・フォント・余白。色は全てここの定数を使う。
+
+use std::sync::Arc;
+
 use eframe::egui::{self, Color32, CornerRadius, Stroke};
+
+use crate::switcher::Slot;
 
 pub const BG_PANEL: Color32 = Color32::from_rgb(0x1a, 0x1a, 0x1e);
 pub const BG_PANEL_HEADER: Color32 = Color32::from_rgb(0x21, 0x21, 0x25);
@@ -16,12 +22,20 @@ pub const CHIP_AUDIO_FG: Color32 = Color32::from_rgb(0xbd, 0x93, 0xff);
 pub const CHIP_DANTE_BG: Color32 = Color32::from_rgb(0x2a, 0x22, 0x14);
 pub const CHIP_DANTE_FG: Color32 = Color32::from_rgb(0xe0, 0xa8, 0x58);
 
-/// アプリ全体のダークテーマを適用する。
-/// egui標準のダークテーマをベースに、パネルの配色・アクセントカラー・
-/// ウィジェットの角丸を統一のトークンで上書きする。
-pub fn apply(ctx: &egui::Context) {
-    let mut visuals = egui::Visuals::dark();
+/// スロットを表す色(PVW=緑, PGM=赤, Input=青)。
+pub fn slot_color(slot: Slot) -> Color32 {
+    match slot {
+        Slot::Preview => ACCENT_PREVIEW,
+        Slot::Program => ACCENT_PROGRAM,
+        Slot::Input(_) => ACCENT_SELECT,
+    }
+}
 
+/// フォント・ダークテーマ・余白をアプリ全体に適用する。
+pub fn install(ctx: &egui::Context) {
+    install_cjk_fallback(ctx);
+
+    let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = BG_PANEL;
     visuals.window_fill = BG_PANEL_HEADER;
     visuals.window_stroke = Stroke::new(1.0_f32, BORDER);
@@ -35,7 +49,6 @@ pub fn apply(ctx: &egui::Context) {
     visuals.widgets.hovered.weak_bg_fill = BG_ROW_HOVER;
     visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, ACCENT_SELECT);
     visuals.widgets.active.weak_bg_fill = BG_ROW_HOVER;
-
     for widget in [
         &mut visuals.widgets.noninteractive,
         &mut visuals.widgets.inactive,
@@ -45,7 +58,6 @@ pub fn apply(ctx: &egui::Context) {
     ] {
         widget.corner_radius = CornerRadius::from(4);
     }
-
     ctx.set_visuals(visuals);
 
     let mut style = (*ctx.global_style()).clone();
@@ -54,46 +66,41 @@ pub fn apply(ctx: &egui::Context) {
     ctx.set_global_style(style);
 }
 
-/// 現在の割り当て先を示す小さな角丸バッジ(PVW/PGM/IN n/MIX など)を描画する。
-pub fn badge(ui: &mut egui::Ui, text: &str, color: Color32) {
-    egui::Frame::new()
-        .fill(Color32::from_rgba_unmultiplied(
-            color.r(),
-            color.g(),
-            color.b(),
-            40,
-        ))
-        .corner_radius(3.0)
-        .inner_margin(egui::Margin::symmetric(6, 1))
-        .show(ui, |ui| {
-            ui.label(egui::RichText::new(text).small().strong().color(color));
-        });
-}
+/// OSのCJKフォントを優先度の低いフォールバックとして追加し、デバイス名など
+/// OSから渡ってくる日本語が豆腐(□)にならないようにする。見つからなければ既定のまま。
+fn install_cjk_fallback(ctx: &egui::Context) {
+    /// 探すフォント(パス, collection内のフェイス番号)。先に見つかったものを使う。
+    const CANDIDATES: &[(&str, u32)] = &[
+        // Windows
+        (r"C:\Windows\Fonts\YuGothM.ttc", 0),
+        (r"C:\Windows\Fonts\meiryo.ttc", 0),
+        (r"C:\Windows\Fonts\msgothic.ttc", 0),
+        // macOS
+        ("/System/Library/Fonts/ヒラギノ角ゴシック W4.ttc", 0),
+        ("/System/Library/Fonts/Supplemental/Arial Unicode.ttf", 0),
+        // Linux
+        ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 0),
+        ("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc", 0),
+    ];
+    const NAME: &str = "cjk_fallback";
 
-/// バッジの文言(PVW/PGM/IN n/MIX)から対応するアクセントカラーを返す。
-pub fn badge_color(text: &str) -> Color32 {
-    match text {
-        "PVW" => ACCENT_PREVIEW,
-        "PGM" => ACCENT_PROGRAM,
-        "MIX" => CHIP_AUDIO_FG,
-        _ => ACCENT_SELECT,
+    let Some((bytes, index)) = CANDIDATES
+        .iter()
+        .find_map(|&(path, index)| std::fs::read(path).ok().map(|bytes| (bytes, index)))
+    else {
+        return;
+    };
+
+    let mut fonts = egui::FontDefinitions::default();
+    let mut font = egui::FontData::from_owned(bytes);
+    font.index = index;
+    fonts.font_data.insert(NAME.to_owned(), Arc::new(font));
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .push(NAME.to_owned());
     }
-}
-
-/// ソース種別を示す小さなアイコンチップ(CAM/SCR/MICなど)を描画する。
-pub fn icon_chip(ui: &mut egui::Ui, text: &str, bg: Color32, fg: Color32) -> egui::Response {
-    egui::Frame::new()
-        .fill(bg)
-        .corner_radius(4.0)
-        .inner_margin(egui::Margin::symmetric(5, 2))
-        .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(text)
-                    .small()
-                    .strong()
-                    .color(fg)
-                    .monospace(),
-            );
-        })
-        .response
+    ctx.set_fonts(fonts);
 }
