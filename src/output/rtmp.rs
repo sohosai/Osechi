@@ -1,4 +1,4 @@
-//! RTMPでの配信。edamame(の publisher)などのRTMPサーバーへ、番組を H.264 + AAC で送る。
+//! RTMPでの配信。edamame(の publisher)などのRTMPサーバーへ、番組(PGM)を H.264 + AAC で送る。
 //!
 //! edamame は 1080p を再エンコードせずにそのまま視聴者へ配る(`mode = "copy"`)ので、次の条件で送る。
 //! - 映像: 1920x1080・30fps 固定・キーフレームは2秒ごと(セグメント長を割り切る間隔)
@@ -7,6 +7,7 @@
 //! 送信は専用スレッドで行う。接続が切れたら [`RETRY_INTERVAL`] おいて繋ぎ直し、繋ぎ直すたびに
 //! タイムスタンプとキーフレームの周期を0から数え直す(edamame 側も受け直すたびに0から数える)。
 
+use std::fmt;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::str::FromStr;
@@ -15,7 +16,6 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
-use std::{fmt, iter};
 
 use bytes::Bytes;
 use rml_rtmp::handshake::{Handshake, HandshakeProcessResult, PeerType};
@@ -25,29 +25,23 @@ use rml_rtmp::sessions::{
 };
 use rml_rtmp::time::RtmpTimestamp;
 
-use super::convert::I420;
-use super::encode::{AAC_FRAME_SIZE, AudioEncoder, VideoEncoder, to_i16};
-use super::{FRAME_RATE, HEIGHT, Program, WIDTH, flv};
+use super::encode::{AAC_FRAME_SIZE, AudioEncoder, to_i16};
+use super::pipeline::{AudioPipeline, Clock, VideoPipeline};
+use super::{FRAME_RATE, Taps, flv, h264};
 use crate::error::{Context, Error, Result};
 use crate::mixer::{CHANNELS, SAMPLE_RATE};
-use crate::source::video::Frame;
+use crate::switcher::Slot;
 
 /// RTMPの既定のポート。
 const DEFAULT_PORT: u16 = 1935;
-/// キーフレームの間隔(秒)。edamame のセグメント長(6秒)を割り切る値にする。
-const KEYFRAME_INTERVAL_SECS: u64 = 2;
+/// 送出する映像の大きさ。edamame の 1080p(copy)の設定と一致させる。
+const SIZE: (usize, usize) = (1920, 1080);
 /// 音声のビットレート(bps)。
 const AUDIO_BITRATE: u32 = 128_000;
 /// 接続が切れてから繋ぎ直すまでの間隔。
 const RETRY_INTERVAL: Duration = Duration::from_secs(2);
 /// 接続・送信・応答待ちのタイムアウト。
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(5);
-/// 送信スレッドが間に合わなくなったとき、この数のフレームより遅れたら追いつくのを諦めて飛ばす。
-const MAX_LAG_FRAMES: u64 = 3;
-/// 音声の揺らぎを吸収するために溜めておく量(フレーム数)。約60ms。
-const AUDIO_CUSHION: u64 = SAMPLE_RATE as u64 * 60 / 1000;
-/// 溜まった音声がこれ(フレーム数)を超えたら [`AUDIO_CUSHION`] まで捨てて遅延を詰める。約200ms。
-const AUDIO_BACKLOG_LIMIT: u64 = SAMPLE_RATE as u64 * 200 / 1000;
 
 /// 配信先。`rtmp://host[:port]/app/stream` を分解したもの。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,8 +183,8 @@ impl Drop for Running {
 }
 
 impl Rtmp {
-    /// 配信を始める。既に配信中なら止めてから始め直す。
-    pub fn start(&mut self, settings: Settings, program: Program) {
+    /// PGM の配信を始める。既に配信中なら止めてから始め直す。
+    pub fn start(&mut self, settings: Settings, taps: Taps) {
         self.stop();
         tracing::info!(
             "RTMP output starting: {} ({} kbps)",
@@ -202,7 +196,7 @@ impl Rtmp {
         let (thread_stop, thread_status) = (Arc::clone(&stop), Arc::clone(&status));
         thread::Builder::new()
             .name("rtmp".to_string())
-            .spawn(move || run(&settings, &program, &thread_stop, &thread_status))
+            .spawn(move || run(&settings, &taps, &thread_stop, &thread_status))
             .expect("failed to spawn RTMP thread");
         self.running = Some(Running { stop, status });
     }
@@ -233,7 +227,7 @@ impl Rtmp {
 }
 
 /// 止められるまで、接続 → 送出 → (失敗したら)待って繋ぎ直す、を繰り返す。
-fn run(settings: &Settings, program: &Program, stop: &AtomicBool, status: &SharedStatus) {
+fn run(settings: &Settings, taps: &Taps, stop: &AtomicBool, status: &SharedStatus) {
     let mut attempts = 0u64;
     while !stop.load(Ordering::Relaxed) {
         update(status, |s| {
@@ -242,7 +236,7 @@ fn run(settings: &Settings, program: &Program, stop: &AtomicBool, status: &Share
         });
         attempts += 1;
 
-        match publish(settings, program, stop, status) {
+        match publish(settings, taps, stop, status) {
             Ok(()) => break,
             Err(err) => {
                 tracing::warn!("RTMP output to {} failed: {err:#}", settings.target);
@@ -264,7 +258,7 @@ fn run(settings: &Settings, program: &Program, stop: &AtomicBool, status: &Share
 /// 1回の接続で送出する。止められたら `Ok`、接続や送信に失敗したら `Err`。
 fn publish(
     settings: &Settings,
-    program: &Program,
+    taps: &Taps,
     stop: &AtomicBool,
     status: &SharedStatus,
 ) -> Result<()> {
@@ -273,38 +267,28 @@ fn publish(
     connection.send_metadata(settings.video_bitrate)?;
     tracing::info!("RTMP output is live: {}", settings.target);
 
-    let mut encoder = Encoder::new(settings.video_bitrate, program)?;
+    let mut encoder = Encoder::new(taps, settings.video_bitrate)?;
     update(status, |s| {
         s.state = State::Live;
         s.live_since = Some(Instant::now());
         s.error = None;
     });
 
-    let frame_interval = Duration::from_secs(1) / FRAME_RATE;
-    let start = Instant::now();
+    let mut clock = Clock::starting_at(Instant::now());
     let mut stats = Stats::new();
-    let mut index = 0u64;
     while !stop.load(Ordering::Relaxed) {
         connection.receive()?;
-
-        let due = start + frame_interval * index as u32;
-        if let Some(wait) = due.checked_duration_since(Instant::now()) {
-            thread::sleep(wait);
-        }
-        // 大きく遅れたら、遅れた分のフレームを飛ばして今に追いつく
-        let current = (start.elapsed().as_nanos() / frame_interval.as_nanos()) as u64;
-        if current > index + MAX_LAG_FRAMES {
-            stats.dropped += current - index;
-            index = current;
-        }
-
+        let index = clock.tick();
         for tag in encoder.encode(index)? {
             connection.send(tag)?;
         }
-        index += 1;
         stats.frames += 1;
-        stats.audio_gaps = encoder.audio_gaps;
-        stats.report(connection.sent_bytes, status);
+        stats.report(
+            connection.sent_bytes,
+            clock.dropped,
+            encoder.audio.gaps,
+            status,
+        );
     }
 
     connection.stop_publishing();
@@ -316,8 +300,6 @@ struct Stats {
     since: Instant,
     bytes_at: u64,
     frames: u64,
-    dropped: u64,
-    audio_gaps: u64,
 }
 
 impl Stats {
@@ -326,29 +308,25 @@ impl Stats {
             since: Instant::now(),
             bytes_at: 0,
             frames: 0,
-            dropped: 0,
-            audio_gaps: 0,
         }
     }
 
-    fn report(&mut self, sent_bytes: u64, status: &SharedStatus) {
+    fn report(&mut self, sent_bytes: u64, dropped: u64, audio_gaps: u64, status: &SharedStatus) {
         let elapsed = self.since.elapsed().as_secs_f64();
         if elapsed < 1.0 {
             return;
         }
         let bitrate = (sent_bytes - self.bytes_at) as f64 * 8.0 / elapsed;
         let fps = self.frames as f64 / elapsed;
-        let (dropped, audio_gaps) = (self.dropped, self.audio_gaps);
         update(status, |s| {
             s.bitrate = bitrate;
             s.fps = fps;
-            s.dropped_frames += dropped;
+            s.dropped_frames = dropped;
             s.audio_gaps = audio_gaps;
         });
         tracing::debug!("RTMP output: {:.0} kbps, {fps:.1} fps", bitrate / 1000.0);
         *self = Self {
             bytes_at: sent_bytes,
-            audio_gaps,
             ..Self::new()
         };
     }
@@ -367,47 +345,29 @@ enum Tag {
     },
 }
 
-/// 番組の映像・音声を取り出してエンコードし、送るメッセージにする。
-struct Encoder<'a> {
-    program: &'a Program,
-    video: VideoEncoder,
-    audio: AudioEncoder,
-    image: I420,
-    /// `image` の元になったフレーム(同じなら変換を省く)
-    shown: Option<Arc<Frame>>,
-    /// 最後にキーフレームを入れたGOPの番号
-    keyframe_group: Option<u64>,
+/// PGM の映像・音声を取り出してエンコードし、送るメッセージにする。
+struct Encoder {
+    video: VideoPipeline,
+    audio: AudioPipeline,
+    aac: AudioEncoder,
     sent_video_header: bool,
     sent_audio_header: bool,
-    /// エンコーダへ渡し終えた音声のフレーム数(無音の詰め物を含む)
-    audio_position: u64,
-    /// エンコーダへ渡す前の 16bit PCM
+    /// AACエンコーダへ渡す前の 16bit PCM
     pcm: Vec<i16>,
     /// 出力したAACフレームの数
     aac_frames: u64,
-    /// 音声が足りず無音で埋めた回数
-    audio_gaps: u64,
 }
 
-impl<'a> Encoder<'a> {
-    fn new(video_bitrate: u32, program: &'a Program) -> Result<Self> {
-        // 接続前に溜まった音声は捨て、揺らぎを吸収する分だけ無音を先に置く
-        let bus = program.audio();
-        bus.skip(bus.len());
-        let cushion = AUDIO_CUSHION * CHANNELS as u64;
+impl Encoder {
+    fn new(taps: &Taps, video_bitrate: u32) -> Result<Self> {
         Ok(Self {
-            program,
-            video: VideoEncoder::new(video_bitrate, FRAME_RATE)?,
-            audio: AudioEncoder::new(AUDIO_BITRATE)?,
-            image: I420::new(WIDTH, HEIGHT),
-            shown: None,
-            keyframe_group: None,
+            video: VideoPipeline::new(taps.clone(), Slot::Program, SIZE, video_bitrate)?,
+            audio: AudioPipeline::new(taps),
+            aac: AudioEncoder::new(AUDIO_BITRATE)?,
             sent_video_header: false,
             sent_audio_header: false,
-            audio_position: AUDIO_CUSHION,
-            pcm: iter::repeat_n(0, cushion as usize).collect(),
+            pcm: Vec::new(),
             aac_frames: 0,
-            audio_gaps: 0,
         })
     }
 
@@ -419,36 +379,17 @@ impl<'a> Encoder<'a> {
     }
 
     fn encode_video(&mut self, index: u64) -> Result<Vec<Tag>> {
-        let frame = self.program.frame();
-        let changed = match (&frame, &self.shown) {
-            (Some(new), Some(old)) => !Arc::ptr_eq(new, old),
-            (None, None) => false,
-            _ => true,
-        };
-        if changed {
-            match &frame {
-                Some(frame) => self.image.fill_from(frame),
-                None => self.image.fill_black(),
-            }
-            self.shown = frame;
-        }
-
-        let group = index / (KEYFRAME_INTERVAL_SECS * u64::from(FRAME_RATE));
-        let want_keyframe = self.keyframe_group != Some(group);
-        let encoded = self.video.encode(&self.image, want_keyframe)?;
-        if encoded.keyframe {
-            self.keyframe_group = Some(group);
-        }
+        let encoded = self.video.encode(index)?;
         let timestamp = timestamp_ms(index, u64::from(FRAME_RATE));
 
         let mut tags = Vec::new();
         if !self.sent_video_header {
             // 最初のキーフレームに付いてくる SPS・PPS からシーケンスヘッダを作る
-            let Some((sps, pps)) = flv::parameter_sets(&encoded.nals) else {
+            let Some((sps, pps)) = h264::parameter_sets(&encoded.nals) else {
                 return Ok(tags);
             };
             tags.push(Tag::Video {
-                data: flv::avc_sequence_header(sps, pps),
+                data: flv::avc_sequence_header(&h264::decoder_config(sps, pps)),
                 timestamp,
                 keyframe: true,
             });
@@ -456,7 +397,7 @@ impl<'a> Encoder<'a> {
         }
         if !encoded.nals.is_empty() {
             tags.push(Tag::Video {
-                data: flv::avc_frame(&encoded.nals, encoded.keyframe),
+                data: flv::avc_frame(&h264::length_prefixed(&encoded.nals), encoded.keyframe),
                 timestamp,
                 keyframe: encoded.keyframe,
             });
@@ -464,29 +405,16 @@ impl<'a> Encoder<'a> {
         Ok(tags)
     }
 
-    /// 映像の `frames` 枚目の時刻までの音声を取り出してエンコードする。
+    /// 映像の `frames` 枚目の時刻までの音声を AAC にする。
     fn encode_audio(&mut self, frames: u64) -> Result<Vec<Tag>> {
-        let target = frames * u64::from(SAMPLE_RATE) / u64::from(FRAME_RATE);
-        let need = target.saturating_sub(self.audio_position);
-        let channels = CHANNELS as u64;
-
-        let bus = self.program.audio();
-        let buffered = bus.len() as u64 / channels;
-        if buffered > need + AUDIO_BACKLOG_LIMIT {
-            bus.skip(((buffered - need - AUDIO_CUSHION) * channels) as usize);
-        } else if buffered < need {
-            self.audio_gaps += 1;
-        }
-        let mut samples = vec![0.0; (need * channels) as usize];
-        bus.pull(&mut samples);
-        self.pcm.extend(samples.into_iter().map(to_i16));
-        self.audio_position += need;
+        self.pcm
+            .extend(self.audio.take(frames).into_iter().map(to_i16));
 
         let mut tags = Vec::new();
         let frame_len = AAC_FRAME_SIZE * CHANNELS as usize;
         while self.pcm.len() >= frame_len {
             let chunk: Vec<i16> = self.pcm.drain(..frame_len).collect();
-            let Some(aac) = self.audio.encode(&chunk)? else {
+            let Some(aac) = self.aac.encode(&chunk)? else {
                 continue;
             };
             let timestamp = timestamp_ms(
@@ -581,8 +509,8 @@ impl Connection {
     /// 映像・音声の形式を onMetaData で伝える。
     fn send_metadata(&mut self, video_bitrate: u32) -> Result<()> {
         let mut metadata = StreamMetadata::new();
-        metadata.video_width = Some(WIDTH as u32);
-        metadata.video_height = Some(HEIGHT as u32);
+        metadata.video_width = Some(SIZE.0 as u32);
+        metadata.video_height = Some(SIZE.1 as u32);
         metadata.video_codec_id = Some(flv::VIDEO_CODEC_ID);
         metadata.video_frame_rate = Some(FRAME_RATE as f32);
         metadata.video_bitrate_kbps = Some(video_bitrate / 1000);
@@ -859,9 +787,8 @@ mod tests {
     }
 
     #[test]
-    fn keyframes_follow_the_fixed_interval() {
-        let program = Program::new(crate::mixer::Bus::default());
-        let mut encoder = Encoder::new(1_000_000, &program).unwrap();
+    fn sends_sequence_header_then_keyframes_every_two_seconds() {
+        let mut encoder = Encoder::new(&Taps::default(), 1_000_000).unwrap();
         let mut keyframes = Vec::new();
         for index in 0..130 {
             for tag in encoder.encode(index).unwrap() {
@@ -881,8 +808,7 @@ mod tests {
 
     #[test]
     fn audio_keeps_pace_with_video() {
-        let program = Program::new(crate::mixer::Bus::default());
-        let mut encoder = Encoder::new(1_000_000, &program).unwrap();
+        let mut encoder = Encoder::new(&Taps::default(), 1_000_000).unwrap();
         let mut last_audio = 0;
         for index in 0..90 {
             for tag in encoder.encode(index).unwrap() {

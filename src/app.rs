@@ -1,8 +1,8 @@
 //! アプリ全体の状態と、処理の順序。
 //!
-//! 状態([`App`])はUIスレッドとエンジンスレッドで共有する。ソースの開閉・音声の合成・番組出力への
+//! 状態([`App`])はUIスレッドとエンジンスレッドで共有する。ソースの開閉・音声の合成・配信や録画への
 //! 受け渡しはエンジンスレッドが一定間隔で進めるので、ウインドウの最小化やドラッグで描画が止まっても
-//! 音声や配信は止まらない。UIスレッドは描画の間だけ状態をロックする。
+//! 音声・配信・録画は止まらない。UIスレッドは描画の間だけ状態をロックする。
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -13,7 +13,7 @@ use eframe::egui;
 
 use crate::config::Config;
 use crate::mixer::Mixer;
-use crate::output::{Program, rtmp};
+use crate::output::{Taps, record, rtmp};
 use crate::source::audio::{self, aes67};
 use crate::source::{Catalog, Live, Origin, SourceId, video};
 use crate::switcher::{Slot, Switcher};
@@ -48,10 +48,12 @@ pub struct App {
     pub textures: HashMap<SourceId, (u64, egui::TextureHandle)>,
     pub switcher: Switcher,
     pub mixer: Mixer,
-    /// 番組出力(PGMの映像とマスター音声)
-    pub program: Program,
+    /// 配信・録画へ渡すスロットの映像とマスター音声
+    pub taps: Taps,
     /// RTMP配信
     pub rtmp: rtmp::Rtmp,
+    /// 録画
+    pub recorder: record::Recorder,
     pub ui: ui::State,
     /// SAPによるAES67フローの自動検出(SAPのポートが使えなければ無効)
     discovery: Option<aes67::Discovery>,
@@ -63,7 +65,7 @@ impl App {
         ui::theme::install(ctx);
 
         let mixer = Mixer::new();
-        let program = Program::new(mixer.program_audio());
+        let taps = Taps::new(mixer.program_audio());
         let mut ui = ui::State::default();
         if let Some(url) = config.rtmp_url {
             ui.rtmp.url = url;
@@ -78,8 +80,9 @@ impl App {
             textures: HashMap::new(),
             switcher: Switcher::default(),
             mixer,
-            program,
+            taps,
             rtmp: rtmp::Rtmp::default(),
+            recorder: record::Recorder::default(),
             ui,
             discovery: aes67::Discovery::start(),
             next_serial: 0,
@@ -111,7 +114,7 @@ impl App {
     }
 
     /// 入出力を1回分進める。エンジンスレッドが [`TICK_INTERVAL`] ごとに呼ぶ。
-    /// ソース一覧の更新 → 使われているソースの開閉 → 映像の取り込み → 音声の合成 → 番組出力への受け渡しの順。
+    /// ソース一覧の更新 → 使われているソースの開閉 → 映像の取り込み → 音声の合成 → 配信・録画への受け渡しの順。
     fn tick(&mut self) {
         if let Some(discovery) = &mut self.discovery {
             self.audio.sync(Origin::Discovered, discovery.sources());
@@ -121,11 +124,10 @@ impl App {
         self.collect_frames();
         self.mixer.process(&self.chunks);
 
-        let program = self.switcher[Slot::Program]
-            .as_ref()
-            .and_then(|id| self.latest.get(id))
-            .map(|latest| Arc::clone(&latest.frame));
-        self.program.set_frame(program);
+        self.taps.set_frames(Slot::all().filter_map(|slot| {
+            let latest = self.latest.get(self.switcher[slot].as_ref()?)?;
+            Some((slot, Arc::clone(&latest.frame)))
+        }));
     }
 
     /// 開いている映像ソースごとに、届いた最新のフレームを取っておく。
@@ -213,6 +215,13 @@ fn run_engine(app: Weak<Mutex<App>>) {
             // 大きく遅れたら追いつこうとせず、今から数え直す
             None => next = now,
         }
+    }
+}
+
+/// 終了時は、録画中のファイルを仕上げ終えるまで待つ(途中で終わると普通の .mov にならない)。
+impl Drop for Shell {
+    fn drop(&mut self) {
+        lock(&self.app).recorder.finish();
     }
 }
 

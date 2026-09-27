@@ -16,6 +16,9 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
                 if ui.button("RTMP...").clicked() {
                     app.ui.output_open = true;
                 }
+                if ui.button("Recording...").clicked() {
+                    app.ui.record_open = true;
+                }
             });
             ui.menu_button("Settings", |ui| {
                 ui.checkbox(&mut app.ui.show_labels, "Show Labels");
@@ -25,6 +28,7 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui.label(format!("Video: {}", app.video.len()));
                 ui.separator();
                 super::output::indicator(app, ui);
+                super::record::indicator(app, ui);
             });
         });
     });

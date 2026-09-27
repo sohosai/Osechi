@@ -145,14 +145,14 @@ graph LR
     L -->|"Kind::open()"| F["Feed (取得中)"]
     F -.-|"drain()"| LT["App::latest (最新フレーム)"]
     LT -.-> T["テクスチャ(UI)"]
-    LT -.-> P["Program(PGM のみ、配信へ)"]
+    LT -.-> P["Taps(スロットごと、配信・録画へ)"]
     F -.-|"drop"| X["取得スレッド終了"]
 ```
 
 1. 起動時とソース一覧の **Rescan** で `video::scan()` を呼び、`Catalog::sync(Origin::Scanned, ..)` で一覧を更新する
 2. UI のソース一覧からマルチビューのスロットへドラッグすると、`Switcher` に `SourceId` が割り当てられる
 3. エンジンスレッドが 10ms ごとに `Live::sync(&catalog, switcher.sources())` を呼び、どこかのスロットに出ているソースだけを開く
-4. 同じくエンジンスレッドが、各ソースの最新フレームを `App::latest` に取っておく。PGM のフレームは番組出力(`output::Program`)にも置く
+4. 同じくエンジンスレッドが、各ソースの最新フレームを `App::latest` に取っておく。各スロットに出ているフレームは配信・録画への受け渡し口(`output::Taps`)にも置く
 5. UI スレッドは描画のたびに、`latest` のうち変わったものだけを egui のテクスチャに上げる
 6. どのスロットからも外れたソースは `Live::sync` で `Feed` が drop され、取得スレッドが止まる
 

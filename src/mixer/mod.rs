@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use dsp::level_to_meter;
-pub use output::Bus;
+pub use output::{Bus, Fanout};
 
 use crate::source::audio::Chunk;
 use crate::source::{Live, SourceId};
@@ -86,8 +86,8 @@ pub struct Mixer {
     remote_mute_seen: bool,
     /// モニター出力へ渡す合成結果
     bus: output::Bus,
-    /// 番組出力(配信)へ渡す合成結果
-    program: output::Bus,
+    /// 番組出力(配信・録画)へ配る合成結果
+    program: Fanout,
     monitor: output::Monitor,
     outputs: Vec<(cpal::DeviceId, String)>,
 }
@@ -107,7 +107,7 @@ impl Mixer {
             remote_mute: Arc::new(AtomicBool::new(false)),
             remote_mute_seen: false,
             bus: output::Bus::default(),
-            program: output::Bus::default(),
+            program: Fanout::default(),
             monitor: output::Monitor::default(),
             outputs: output::devices(),
         }
@@ -143,8 +143,8 @@ impl Mixer {
         Arc::clone(&self.remote_mute)
     }
 
-    /// 番組出力(配信)へ渡す合成結果。マスターのフェーダー・ミュートを通した後の音声。
-    pub fn program_audio(&self) -> Bus {
+    /// 番組出力(配信・録画)へ配る合成結果。マスターのフェーダー・ミュートを通した後の音声。
+    pub fn program_audio(&self) -> Fanout {
         self.program.clone()
     }
 
@@ -230,7 +230,7 @@ mod tests {
             remote_mute: Arc::new(AtomicBool::new(false)),
             remote_mute_seen: false,
             bus: output::Bus::default(),
-            program: output::Bus::default(),
+            program: Fanout::default(),
             monitor: output::Monitor::default(),
             outputs: Vec::new(),
         }
