@@ -52,6 +52,10 @@ curl -X POST http://localhost:7878/mute \
 - スキーマ: `http://<host>:<port>/api-docs/openapi.json`
 - Swagger UI: `http://<host>:<port>/swagger-ui`
 
+## CORS
+
+すべてのオリジン・HTTPメソッド・ヘッダーを許可(`CorsLayer::permissive()`)しています。ブラウザ上のWebフロントエンドから直接リクエストを送ることができます。
+
 ## UI との同期
 
 API とミキサーは `Arc<AtomicBool>` を共有し、エンジンスレッドが約 10ms ごとに `Mixer::process` の中で突き合わせる。

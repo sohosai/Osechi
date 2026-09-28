@@ -24,6 +24,7 @@ tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "macros"] }
 serde = { version = "1.0.229", features = ["derive"] }
 utoipa = { version = "5.5.0", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+tower-http = { version = "0.7.1", features = ["cors"] }
 
 # 番組出力(RTMP配信・録画)関連。エンコーダはソースからビルドして組み込み、ffmpeg等の外部ツールに頼らない。
 openh264 = "0.9.8"

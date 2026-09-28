@@ -15,6 +15,7 @@ use std::sync::atomic::AtomicBool;
 use axum::Router;
 use axum::routing::post;
 use tokio::net::TcpListener;
+use tower_http::cors::CorsLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -58,6 +59,7 @@ fn build_router(is_muted: Arc<AtomicBool>) -> Router {
     Router::new()
         .route("/mute", post(mute::mute).get(mute::get_mute))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .layer(CorsLayer::permissive())
         .with_state(state)
 }
 
@@ -225,5 +227,32 @@ mod tests {
             std::env::remove_var(PORT_ENV_VAR);
         }
         assert_eq!(resolve_port(), DEFAULT_PORT);
+    }
+
+    #[tokio::test]
+    async fn cors_allows_any_origin() {
+        let router = build_router(Arc::new(AtomicBool::new(false)));
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method("OPTIONS")
+                    .uri("/mute")
+                    .header("origin", "http://example.com")
+                    .header("access-control-request-method", "POST")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|v| v.to_str().ok()),
+            Some("*")
+        );
     }
 }
