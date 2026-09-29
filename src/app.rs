@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 
 use crate::config::Config;
-use crate::mixer::Mixer;
+use crate::mixer::{Mixer, Pick};
 use crate::output::{Taps, record, rtmp};
 use crate::source::audio::{self, aes67};
 use crate::source::{Catalog, Live, Origin, SourceId, video};
@@ -40,8 +40,11 @@ pub struct App {
     pub audio: Catalog<audio::Kind>,
     /// 開いている映像ソース(スイッチャーに割り当てられているもの)
     pub frames: Live<video::Frame>,
-    /// 開いている音声ソース(ミキサーに入っているもの)
+    /// 開いている音声ソース(ミキサーに入っているもの・ソース一覧でチャンネルを広げているもの)
     pub chunks: Live<audio::Chunk>,
+    /// 開いている音声ソースごとの、最後に届いた音声のチャンネル数。
+    /// AES67フローはチャンネル数が送り手の設定次第で変わるので、実際に届いた値でチャンネルを振り分ける。
+    channel_counts: HashMap<SourceId, u16>,
     /// 開いている映像ソースごとの最新フレーム
     pub latest: HashMap<SourceId, Latest>,
     /// UIに表示するテクスチャと、その元になった [`Latest::serial`]
@@ -76,6 +79,7 @@ impl App {
             audio: Catalog::default(),
             frames: Live::default(),
             chunks: Live::default(),
+            channel_counts: HashMap::new(),
             latest: HashMap::new(),
             textures: HashMap::new(),
             switcher: Switcher::default(),
@@ -91,7 +95,7 @@ impl App {
 
         for (name, flow) in config.aes67_flows {
             let source = flow.into_source(&name, Origin::Manual);
-            app.mixer.add(source.id.clone());
+            app.mixer.add(source.id.clone(), Pick::All);
             app.audio.insert(source);
         }
         if config.demo_mixer
@@ -100,7 +104,7 @@ impl App {
                 .iter()
                 .find(|source| matches!(source.kind, audio::Kind::Device(_)))
         {
-            app.mixer.add(device.id.clone());
+            app.mixer.add(device.id.clone(), Pick::All);
         }
 
         crate::api::spawn(app.mixer.remote_mute());
@@ -120,14 +124,38 @@ impl App {
             self.audio.sync(Origin::Discovered, discovery.sources());
         }
         self.frames.sync(&self.video, self.switcher.sources());
-        self.chunks.sync(&self.audio, self.mixer.sources());
+        self.chunks.sync(
+            &self.audio,
+            self.mixer.sources().chain(&self.ui.expanded_audio),
+        );
         self.collect_frames();
-        self.mixer.process(&self.chunks);
+
+        let received = self.chunks.drain_all();
+        self.channel_counts
+            .retain(|id, _| received.contains_key(id));
+        for (id, chunks) in &received {
+            if let Some(chunk) = chunks.last() {
+                self.channel_counts.insert(id.clone(), chunk.channels);
+            }
+        }
+        self.mixer.process(&received);
 
         self.taps.set_frames(Slot::all().filter_map(|slot| {
             let latest = self.latest.get(self.switcher[slot].as_ref()?)?;
             Some((slot, Arc::clone(&latest.frame)))
         }));
+    }
+
+    /// 音声ソースのチャンネル数。開いていて音声が届いていればその値、まだならソースの設定から分かる値
+    /// (AES67フローの設定のチャンネル数)。どちらも無ければ(開いていない入力デバイスなど) `None`。
+    pub fn channel_count(&self, id: &SourceId) -> Option<u16> {
+        self.received_channel_count(id)
+            .or_else(|| self.audio.get(id)?.kind.channels())
+    }
+
+    /// 開いている音声ソースに実際に届いている音声のチャンネル数。まだ届いていなければ `None`。
+    pub fn received_channel_count(&self, id: &SourceId) -> Option<u16> {
+        self.channel_counts.get(id).copied()
     }
 
     /// 開いている映像ソースごとに、届いた最新のフレームを取っておく。

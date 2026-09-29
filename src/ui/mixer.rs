@@ -5,7 +5,7 @@ use eframe::egui::{self, Sense, Stroke, StrokeKind, Ui, vec2};
 use super::widget::{Chip, CloseButton, Fader, MuteButton};
 use super::{Drag, theme};
 use crate::app::App;
-use crate::mixer::Strip;
+use crate::mixer::{Channel, Pick, Strip};
 
 const STRIP_WIDTH: f32 = 108.0;
 
@@ -25,18 +25,36 @@ pub(super) fn show(app: &mut App, ui: &mut Ui) {
             egui::ScrollArea::horizontal().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.add_space(6.0);
+                    // (選べるチャンネル数, 実際に届いているチャンネル数)。チャンネルを借りる前に調べておく
+                    let counts: Vec<_> = app
+                        .mixer
+                        .channels
+                        .iter()
+                        .map(|c| {
+                            (
+                                app.channel_count(&c.source),
+                                app.received_channel_count(&c.source),
+                            )
+                        })
+                        .collect();
                     let mut removed = None;
-                    for channel in &mut app.mixer.channels {
+                    for (index, (channel, (count, received))) in
+                        app.mixer.channels.iter_mut().zip(counts).enumerate()
+                    {
                         let source = app.audio.get(&channel.source);
-                        let name = app.audio.name(&channel.source);
-                        let accent =
-                            source.map_or(theme::CHIP_AUDIO_FG, |s| Chip::audio(&s.kind).accent());
-                        if channel_strip(ui, name, accent, &mut channel.strip) {
-                            removed = Some(channel.source.clone());
+                        let strip = StripInfo {
+                            name: app.audio.name(&channel.source),
+                            accent: source
+                                .map_or(theme::CHIP_AUDIO_FG, |s| Chip::audio(&s.kind).accent()),
+                            picks: count.map_or_else(Vec::new, Pick::options),
+                            missing: received.is_some_and(|n| !channel.pick.fits(n)),
+                        };
+                        if channel_strip(ui, index, &strip, channel) {
+                            removed = Some(index);
                         }
                     }
-                    if let Some(id) = removed {
-                        app.mixer.remove(&id);
+                    if let Some(index) = removed {
+                        app.mixer.remove_at(index);
                     }
 
                     drop_slot(app, ui);
@@ -49,15 +67,29 @@ pub(super) fn show(app: &mut App, ui: &mut Ui) {
         });
 }
 
+/// チャンネルのカードに出す、ソース側の情報。
+struct StripInfo<'a> {
+    name: &'a str,
+    /// ソースの種別を表す色
+    accent: egui::Color32,
+    /// ソースのどのチャンネルを流すかの選択肢
+    picks: Vec<Pick>,
+    /// 選んでいるチャンネルが、実際に届いている音声に無いか(送り手のチャンネル数が減ったなど)
+    missing: bool,
+}
+
 /// 1チャンネル分のカード。削除ボタンが押されたら `true` を返す。
-fn channel_strip(ui: &mut Ui, name: &str, accent: egui::Color32, strip: &mut Strip) -> bool {
+///
+/// 選べるチャンネルが無ければ(選択肢が1つ以下で、全チャンネルを流している)選択欄は出さない。
+/// 選んでいるチャンネルが届いていなければ、選択欄を警告色にする(そのチャンネルは無音になる)。
+fn channel_strip(ui: &mut Ui, index: usize, info: &StripInfo, channel: &mut Channel) -> bool {
     let mut remove = false;
     card(ui, theme::BORDER, |ui| {
         ui.horizontal(|ui| {
             let (dot, _) = ui.allocate_exact_size(vec2(8.0, 8.0), Sense::hover());
-            ui.painter().circle_filled(dot.center(), 3.0, accent);
+            ui.painter().circle_filled(dot.center(), 3.0, info.accent);
             ui.add_space(3.0);
-            ui.label(egui::RichText::new(name).small().strong());
+            ui.label(egui::RichText::new(info.name).small().strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 remove = ui
                     .add(CloseButton)
@@ -65,8 +97,29 @@ fn channel_strip(ui: &mut Ui, name: &str, accent: egui::Color32, strip: &mut Str
                     .clicked();
             });
         });
+        if info.picks.len() > 1 || channel.pick != Pick::All {
+            ui.add_space(2.0);
+            let mut selected = egui::RichText::new(channel.pick.to_string()).small();
+            if info.missing {
+                selected = selected.color(theme::ACCENT_PROGRAM);
+            }
+            egui::ComboBox::from_id_salt(("channel_pick", index))
+                .selected_text(selected)
+                .width(STRIP_WIDTH - 14.0)
+                .show_ui(ui, |ui| {
+                    for &pick in &info.picks {
+                        ui.selectable_value(&mut channel.pick, pick, pick.to_string());
+                    }
+                })
+                .response
+                .on_hover_text(if info.missing {
+                    "This channel is not in the incoming stream (silent)"
+                } else {
+                    "Source channels to feed into this strip"
+                });
+        }
         ui.add_space(6.0);
-        strip_controls(ui, strip);
+        strip_controls(ui, &mut channel.strip);
     });
     remove
 }
@@ -156,7 +209,7 @@ fn drop_slot(app: &mut App, ui: &mut Ui) {
     let (rect, response) = ui.allocate_exact_size(vec2(STRIP_WIDTH, 238.0), Sense::hover());
     let dragging = egui::DragAndDrop::payload::<Drag>(ui.ctx());
     let accepts =
-        response.contains_pointer() && matches!(dragging.as_deref(), Some(Drag::Audio(_)));
+        response.contains_pointer() && matches!(dragging.as_deref(), Some(Drag::Audio(..)));
     let color = if accepts {
         theme::ACCENT_SELECT
     } else {
@@ -177,8 +230,8 @@ fn drop_slot(app: &mut App, ui: &mut Ui) {
     );
 
     if let Some(payload) = response.dnd_release_payload::<Drag>()
-        && let Drag::Audio(id) = &*payload
+        && let Drag::Audio(id, pick) = &*payload
     {
-        app.mixer.add(id.clone());
+        app.mixer.add(id.clone(), *pick);
     }
 }

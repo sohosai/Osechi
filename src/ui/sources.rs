@@ -8,6 +8,7 @@ use eframe::egui;
 use super::widget::{Badge, Chip};
 use super::{Drag, theme};
 use crate::app::App;
+use crate::mixer::Pick;
 use crate::source::audio::{self, aes67};
 use crate::source::{Origin, Source, video};
 
@@ -34,7 +35,7 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
             ui.add_space(4.0);
             ui.separator();
 
-            let mut removed = None;
+            let mut action = None;
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.add_space(4.0);
                 section_label(ui, "VIDEO");
@@ -45,8 +46,26 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui.add_space(10.0);
                 section_label(ui, "AUDIO");
                 for source in &app.audio {
-                    if audio_row(app, ui, source) {
-                        removed = Some(source.id.clone());
+                    let expanded = app.ui.expanded_audio.contains(&source.id);
+                    if let Some(clicked) = audio_row(app, ui, source, expanded) {
+                        action = Some((source.id.clone(), clicked));
+                    }
+                    if expanded {
+                        match app.channel_count(&source.id) {
+                            Some(channels) => {
+                                for ch in 0..channels {
+                                    channel_row(app, ui, source, ch);
+                                }
+                            }
+                            None => {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(26.0);
+                                    ui.label(
+                                        egui::RichText::new("Waiting for audio...").small().weak(),
+                                    );
+                                });
+                            }
+                        }
                     }
                 }
 
@@ -66,9 +85,17 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
             );
             ui.add_space(4.0);
 
-            if let Some(id) = removed {
-                app.audio.remove(&id);
-                app.mixer.remove(&id);
+            match action {
+                Some((id, RowAction::Remove)) => {
+                    app.audio.remove(&id);
+                    app.mixer.remove_source(&id);
+                    app.ui.expanded_audio.remove(&id);
+                }
+                // 広げていれば畳み、畳んでいれば広げる
+                Some((id, RowAction::Toggle)) if !app.ui.expanded_audio.remove(&id) => {
+                    app.ui.expanded_audio.insert(id);
+                }
+                _ => {}
             }
         });
 
@@ -92,12 +119,41 @@ fn video_row(app: &App, ui: &mut egui::Ui, source: &Source<video::Kind>) {
     });
 }
 
-/// 音声ソース1行。手動追加したソースには削除ボタンを出し、押されたら `true` を返す。
-/// スキャンやSAPで見つけたものは自動で出入りするので削除ボタンは出さない。
-fn audio_row(app: &App, ui: &mut egui::Ui, source: &Source<audio::Kind>) -> bool {
+/// 音声ソースの行で押されたボタン。
+enum RowAction {
+    /// ソース一覧から削除する
+    Remove,
+    /// チャンネルごとの行を広げる・畳む
+    Toggle,
+}
+
+/// 音声ソース1行。行ごとドラッグすると全チャンネル([`Pick::All`])をミキサーに入れる。
+///
+/// 手動追加したソースには削除ボタンを出す。スキャンやSAPで見つけたものは自動で出入りするので出さない。
+///
+/// チャンネルごとの行を広げるボタンは、AES67フロー(チャンネル数が送り手の設定次第で変わる)と、
+/// 2ch以上届いているソースに出す。音声が届いていれば、いま何チャンネル届いているかも出す。
+fn audio_row(
+    app: &App,
+    ui: &mut egui::Ui,
+    source: &Source<audio::Kind>,
+    expanded: bool,
+) -> Option<RowAction> {
     let in_mixer = app.mixer.contains(&source.id);
-    let mut remove = false;
-    draggable_row(ui, Drag::Audio(source.id.clone()), |ui| {
+    let received = app.received_channel_count(&source.id);
+    let expandable = expanded
+        || matches!(source.kind, audio::Kind::Aes67(_))
+        || app.channel_count(&source.id).is_some_and(|n| n > 1);
+    let mut action = None;
+    draggable_row(ui, Drag::Audio(source.id.clone(), Pick::All), |ui| {
+        if expandable {
+            let toggle = ui
+                .small_button(if expanded { "-" } else { "+" })
+                .on_hover_text("Show individual channels");
+            if toggle.clicked() {
+                action = Some(RowAction::Toggle);
+            }
+        }
         let chip = ui.add(Chip::audio(&source.kind));
         if matches!(source.kind, audio::Kind::Aes67(_)) {
             chip.on_hover_text(match source.origin {
@@ -107,17 +163,39 @@ fn audio_row(app: &App, ui: &mut egui::Ui, source: &Source<audio::Kind>) -> bool
         }
         ui.label(&source.name);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            remove = source.origin == Origin::Manual
+            if source.origin == Origin::Manual
                 && ui
                     .small_button("x")
                     .on_hover_text("Remove source")
-                    .clicked();
+                    .clicked()
+            {
+                action = Some(RowAction::Remove);
+            }
+            if let Some(channels) = received {
+                ui.label(egui::RichText::new(format!("{channels}ch")).small().weak())
+                    .on_hover_text("Channels in the incoming stream");
+            }
             if in_mixer {
                 ui.add(Badge::new("MIX", theme::CHIP_AUDIO_FG));
             }
         });
     });
-    remove
+    action
+}
+
+/// 多チャンネルの音声ソースを広げたときの、1チャンネル分の行。ドラッグするとそのチャンネルだけをミキサーに入れる。
+fn channel_row(app: &App, ui: &mut egui::Ui, source: &Source<audio::Kind>, ch: u16) {
+    let pick = Pick::Mono(ch);
+    let in_mixer = app.mixer.contains_pick(&source.id, pick);
+    draggable_row(ui, Drag::Audio(source.id.clone(), pick), |ui| {
+        ui.add_space(24.0);
+        ui.label(egui::RichText::new(pick.to_string()).small());
+        if in_mixer {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add(Badge::new("MIX", theme::CHIP_AUDIO_FG));
+            });
+        }
+    });
 }
 
 /// ドラッグで `payload` を運べる1行。ホバー中は枠線で強調する。

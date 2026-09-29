@@ -24,6 +24,16 @@ pub enum Kind {
     Aes67(aes67::Config),
 }
 
+impl Kind {
+    /// 開かなくても分かるチャンネル数。OSの入力デバイスは開くまで分からないので `None`。
+    pub fn channels(&self) -> Option<u16> {
+        match self {
+            Self::Device(_) => None,
+            Self::Aes67(config) => Some(config.channels),
+        }
+    }
+}
+
 impl Open for Kind {
     type Output = Chunk;
 

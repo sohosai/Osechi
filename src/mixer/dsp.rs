@@ -1,5 +1,7 @@
 //! 音声信号の計算。状態を持たない関数だけを置く。
 
+use super::Pick;
+
 /// フェーダーの下端のdB値。フェーダー位置 0.0-1.0 を -60dB〜0dB に線形に割り当てる。
 const FLOOR_DB: f32 = -60.0;
 
@@ -40,9 +42,27 @@ pub fn peak(samples: &[f32]) -> f32 {
     samples.iter().fold(0.0, |peak, s| peak.max(s.abs()))
 }
 
+/// interleavedの任意チャンネル数の音声から、`pick` で選んだチャンネルをステレオで取り出す。
+/// ソースに無いチャンネルを選んでいたら、その側は無音にする。1フレームに満たない末尾は捨てる。
+pub fn pick_stereo(samples: &[f32], channels: u16, pick: Pick) -> Vec<f32> {
+    let (l, r) = match pick {
+        Pick::All => return downmix_to_stereo(samples, channels),
+        Pick::Mono(ch) => (ch, ch),
+        Pick::Stereo(l, r) => (l, r),
+    };
+    if channels == 0 {
+        return Vec::new();
+    }
+    let sample = |frame: &[f32], ch: u16| frame.get(usize::from(ch)).copied().unwrap_or(0.0);
+    samples
+        .chunks_exact(usize::from(channels))
+        .flat_map(|frame| [sample(frame, l), sample(frame, r)])
+        .collect()
+}
+
 /// interleavedの任意チャンネル数の音声をステレオにする。
 /// 1ch: L/Rに複製。2ch: そのまま。3ch以上: 全チャンネルの平均をL/Rに複製する。
-pub fn downmix_to_stereo(samples: &[f32], channels: u16) -> Vec<f32> {
+fn downmix_to_stereo(samples: &[f32], channels: u16) -> Vec<f32> {
     if channels == 0 {
         return Vec::new();
     }
@@ -153,6 +173,44 @@ mod tests {
     #[test]
     fn downmix_multichannel_averages() {
         assert_eq!(downmix_to_stereo(&[0.0, 1.0, 0.0, -1.0], 4), [0.0, 0.0]);
+    }
+
+    #[test]
+    fn pick_all_downmixes() {
+        assert_eq!(pick_stereo(&[0.5], 1, Pick::All), [0.5, 0.5]);
+        assert_eq!(
+            pick_stereo(&[0.0, 1.0, 0.0, -1.0], 4, Pick::All),
+            [0.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn pick_mono_duplicates_one_channel() {
+        let samples = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
+        assert_eq!(
+            pick_stereo(&samples, 3, Pick::Mono(1)),
+            [0.2, 0.2, 0.5, 0.5]
+        );
+    }
+
+    #[test]
+    fn pick_stereo_takes_two_channels() {
+        let samples = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+        assert_eq!(
+            pick_stereo(&samples, 4, Pick::Stereo(2, 3)),
+            [0.3, 0.4, 0.7, 0.8]
+        );
+    }
+
+    #[test]
+    fn pick_missing_channel_is_silent() {
+        assert_eq!(pick_stereo(&[0.1, 0.2], 2, Pick::Stereo(1, 5)), [0.2, 0.0]);
+        assert!(pick_stereo(&[0.1, 0.2], 0, Pick::Mono(0)).is_empty());
+    }
+
+    #[test]
+    fn pick_drops_partial_frame() {
+        assert_eq!(pick_stereo(&[0.1, 0.2, 0.3], 2, Pick::Mono(0)), [0.1, 0.1]);
     }
 
     #[test]

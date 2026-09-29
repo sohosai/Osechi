@@ -62,6 +62,13 @@ impl<T> Live<T> {
             .flat_map(Feed::try_iter)
     }
 
+    /// 開いている全てのソースについて、届いているデータを古い順に全て取り出す。
+    pub fn drain_all(&self) -> HashMap<SourceId, Vec<T>> {
+        self.ids()
+            .map(|id| (id.clone(), self.drain(id).collect()))
+            .collect()
+    }
+
     /// 開けなかった、または直近の取得に失敗したソースとその理由。
     pub fn errors(&self) -> impl Iterator<Item = (&SourceId, String)> {
         self.feeds.iter().filter_map(|(id, feed)| match feed {
@@ -135,6 +142,19 @@ mod tests {
         // 開き直していれば番号がもう一度流れてくる
         live.sync(&catalog, [&id(1)]);
         assert_eq!(live.drain(&id(1)).count(), 0);
+    }
+
+    #[test]
+    fn drain_all_takes_every_open_source_once() {
+        let catalog = catalog(&[1, 2]);
+        let mut live = Live::default();
+        live.sync(&catalog, [&id(1), &id(2)]);
+
+        let drained = live.drain_all();
+        assert_eq!(drained.len(), 2);
+        assert_eq!(drained[&id(1)], [1]);
+        assert_eq!(drained[&id(2)], [2]);
+        assert!(live.drain_all().values().all(Vec::is_empty));
     }
 
     #[test]

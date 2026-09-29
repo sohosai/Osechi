@@ -13,16 +13,20 @@ mod sources;
 pub mod theme;
 mod widget;
 
+use std::collections::HashSet;
+
 use eframe::egui;
 
 use crate::app::App;
+use crate::mixer::Pick;
 use crate::source::SourceId;
 
 /// ドラッグ&ドロップで運ぶもの。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Drag {
     Video(SourceId),
-    Audio(SourceId),
+    /// 音声ソースと、そのどのチャンネルをミキサーに流すか
+    Audio(SourceId, Pick),
 }
 
 /// UIだけが持つ状態。
@@ -31,6 +35,9 @@ pub struct State {
     pub show_labels: bool,
     /// 「Add AES67 Source」ダイアログの入力中の内容(閉じていれば `None`)
     aes67_form: Option<sources::Aes67Form>,
+    /// ソース一覧でチャンネルごとの行を広げている音声ソース。
+    /// 何チャンネル届いているかを見られるよう、エンジンスレッドはミキサーに入っていなくても開いておく。
+    pub(crate) expanded_audio: HashSet<SourceId>,
     /// 配信ウインドウを開いているか
     output_open: bool,
     /// 配信設定の入力中の内容
@@ -46,6 +53,7 @@ impl Default for State {
         Self {
             show_labels: true,
             aes67_form: None,
+            expanded_audio: HashSet::new(),
             output_open: false,
             rtmp: output::RtmpForm::default(),
             record_open: false,
