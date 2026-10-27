@@ -54,6 +54,14 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
                 if ui.small_button("+ Add AES67 Source").clicked() {
                     app.ui.aes67_form = Some(Aes67Form::default());
                 }
+                if let Some(ingest) = &app.rtmp_ingest {
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(format!("RTMP input: {}", ingest.addr()))
+                            .small()
+                            .weak(),
+                    );
+                }
                 ui.add_space(4.0);
             });
 

@@ -14,6 +14,8 @@ pub mod audio;
 mod catalog;
 mod feed;
 mod live;
+pub mod ndi;
+pub mod rtmp;
 pub mod video;
 
 use std::fmt;
@@ -50,6 +52,10 @@ pub enum Origin {
     Manual,
     /// ネットワーク上の告知(SAP)で見つかったもの。告知が途絶えると消える。
     Discovered,
+    /// RTMP の配信が接続されている間だけ現れるもの。
+    Rtmp,
+    /// NDI の検出で見つかったもの。検出から消えると消える。
+    Ndi,
 }
 
 /// ソースの情報。`K` は映像なら `video::Kind`、音声なら `audio::Kind`。

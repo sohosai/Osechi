@@ -3,7 +3,7 @@
 mod camera;
 mod screen;
 
-use super::{Feed, Open, Source};
+use super::{Feed, Open, Source, ndi, rtmp};
 use crate::error::Result;
 
 /// 映像の1フレーム。
@@ -16,6 +16,10 @@ pub enum Kind {
     Camera(nokhwa::utils::CameraIndex),
     /// 画面キャプチャ(モニターID)
     Screen(u32),
+    /// NDI ソース
+    Ndi(ndi::SourceRef),
+    /// RTMP の配信
+    Rtmp(rtmp::Stream),
 }
 
 impl Open for Kind {
@@ -25,6 +29,8 @@ impl Open for Kind {
         match self {
             Self::Camera(index) => camera::open(index.clone()),
             Self::Screen(monitor_id) => screen::open(*monitor_id),
+            Self::Ndi(source) => ndi::open_video(source),
+            Self::Rtmp(stream) => stream.open_video(),
         }
     }
 }

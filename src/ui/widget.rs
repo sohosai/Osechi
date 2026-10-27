@@ -19,15 +19,13 @@ pub struct Chip {
 
 impl Chip {
     pub fn video(kind: &video::Kind) -> Self {
-        let text = match kind {
-            video::Kind::Camera(_) => "CAM",
-            video::Kind::Screen(_) => "SCR",
+        let (text, bg, fg) = match kind {
+            video::Kind::Camera(_) => ("CAM", theme::CHIP_VIDEO_BG, theme::CHIP_VIDEO_FG),
+            video::Kind::Screen(_) => ("SCR", theme::CHIP_VIDEO_BG, theme::CHIP_VIDEO_FG),
+            video::Kind::Ndi(_) => ("NDI", theme::CHIP_NDI_BG, theme::CHIP_NDI_FG),
+            video::Kind::Rtmp(_) => ("RTMP", theme::CHIP_RTMP_BG, theme::CHIP_RTMP_FG),
         };
-        Self {
-            text,
-            bg: theme::CHIP_VIDEO_BG,
-            fg: theme::CHIP_VIDEO_FG,
-        }
+        Self { text, bg, fg }
     }
 
     pub fn audio(kind: &audio::Kind) -> Self {
@@ -41,6 +39,16 @@ impl Chip {
                 text: "DANTE",
                 bg: theme::CHIP_DANTE_BG,
                 fg: theme::CHIP_DANTE_FG,
+            },
+            audio::Kind::Ndi(_) => Self {
+                text: "NDI",
+                bg: theme::CHIP_NDI_BG,
+                fg: theme::CHIP_NDI_FG,
+            },
+            audio::Kind::Rtmp(_) => Self {
+                text: "RTMP",
+                bg: theme::CHIP_RTMP_BG,
+                fg: theme::CHIP_RTMP_FG,
             },
         }
     }

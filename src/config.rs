@@ -1,6 +1,6 @@
 //! 起動時の設定。コマンドライン引数と、会場固有の既定値(常設のAES67フローなど)をまとめる。
 
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 
 use crate::source::audio::aes67;
 
@@ -25,6 +25,8 @@ pub struct Config {
     pub aes67_flows: Vec<(String, aes67::Config)>,
     /// 配信パネルに最初から入れておくRTMPの送出先(`--rtmp-url rtmp://host/app/stream`)。
     pub rtmp_url: Option<String>,
+    /// RTMP入力サーバーの待ち受け先(`--rtmp-ingest 0.0.0.0:1935`)。`--no-rtmp-ingest` で無効化する。
+    pub rtmp_ingest: Option<SocketAddr>,
 }
 
 impl Default for Config {
@@ -34,6 +36,7 @@ impl Default for Config {
             demo_mixer: false,
             aes67_flows: vec![("DM7 AES67".to_string(), DM7)],
             rtmp_url: None,
+            rtmp_ingest: Some(SocketAddr::from(([0, 0, 0, 0], 1935))),
         }
     }
 }
@@ -47,6 +50,12 @@ impl Config {
             match arg.as_str() {
                 "--demo-mixer" => config.demo_mixer = true,
                 "--rtmp-url" => config.rtmp_url = args.next(),
+                "--rtmp-ingest" => {
+                    if let Some(addr) = args.next().as_deref().and_then(parse_addr) {
+                        config.rtmp_ingest = Some(addr);
+                    }
+                }
+                "--no-rtmp-ingest" => config.rtmp_ingest = None,
                 "--window-size" => {
                     if let Some(size) = args.next().as_deref().and_then(parse_size) {
                         config.window_size = size;
@@ -65,6 +74,10 @@ fn parse_size(spec: &str) -> Option<[f32; 2]> {
     Some([width.trim().parse().ok()?, height.trim().parse().ok()?])
 }
 
+fn parse_addr(spec: &str) -> Option<SocketAddr> {
+    spec.trim().parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,6 +92,19 @@ mod tests {
         assert!(!config.demo_mixer);
         assert_eq!(config.window_size, [1280.0, 760.0]);
         assert_eq!(config.aes67_flows, [("DM7 AES67".to_string(), DM7)]);
+        assert_eq!(config.rtmp_ingest, Some("0.0.0.0:1935".parse().unwrap()));
+    }
+
+    #[test]
+    fn parses_rtmp_ingest_settings() {
+        let config = Config::from_args(args(&["--rtmp-ingest", "127.0.0.1:8123"]));
+        assert_eq!(config.rtmp_ingest, Some("127.0.0.1:8123".parse().unwrap()));
+
+        let config = Config::from_args(args(&["--no-rtmp-ingest"]));
+        assert_eq!(config.rtmp_ingest, None);
+
+        let config = Config::from_args(args(&["--rtmp-ingest", "invalid"]));
+        assert_eq!(config.rtmp_ingest, Some("0.0.0.0:1935".parse().unwrap()));
     }
 
     #[test]

@@ -3,7 +3,7 @@
 pub mod aes67;
 mod device;
 
-use super::{Feed, Open, Source};
+use super::{Feed, Open, Source, ndi, rtmp};
 use crate::error::Result;
 
 /// 一定時間分の音声。
@@ -22,6 +22,10 @@ pub enum Kind {
     Device(cpal::DeviceId),
     /// AES67のRTPマルチキャストフロー
     Aes67(aes67::Config),
+    /// NDI ソースの音声
+    Ndi(ndi::SourceRef),
+    /// RTMP の配信の音声
+    Rtmp(rtmp::Stream),
 }
 
 impl Open for Kind {
@@ -31,6 +35,8 @@ impl Open for Kind {
         match self {
             Self::Device(id) => device::open(id),
             Self::Aes67(config) => aes67::open(config),
+            Self::Ndi(source) => ndi::open_audio(source),
+            Self::Rtmp(stream) => stream.open_audio(),
         }
     }
 }
@@ -45,4 +51,4 @@ pub fn scan() -> Vec<Source<Kind>> {
 /// エンジンスレッドが取り出すのは約10msに1回(ロックの待ちで延びることもある)で、AES67はptime=1msごとに
 /// 1チャンク届く。取り出す間隔+余裕を吸収できないと、取り出す前に上書きされて音が周期的に
 /// 欠け、ノイズになる。OSの入力デバイスは1チャンクがずっと長いのでこれで十分足りる。
-const FEED_CAPACITY: usize = 64;
+pub(super) const FEED_CAPACITY: usize = 64;

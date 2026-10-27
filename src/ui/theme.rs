@@ -21,6 +21,10 @@ pub const CHIP_AUDIO_BG: Color32 = Color32::from_rgb(0x28, 0x20, 0x38);
 pub const CHIP_AUDIO_FG: Color32 = Color32::from_rgb(0xbd, 0x93, 0xff);
 pub const CHIP_DANTE_BG: Color32 = Color32::from_rgb(0x2a, 0x22, 0x14);
 pub const CHIP_DANTE_FG: Color32 = Color32::from_rgb(0xe0, 0xa8, 0x58);
+pub const CHIP_NDI_BG: Color32 = Color32::from_rgb(0x14, 0x2a, 0x24);
+pub const CHIP_NDI_FG: Color32 = Color32::from_rgb(0x58, 0xd6, 0xa8);
+pub const CHIP_RTMP_BG: Color32 = Color32::from_rgb(0x32, 0x18, 0x1e);
+pub const CHIP_RTMP_FG: Color32 = Color32::from_rgb(0xf2, 0x7a, 0x8a);
 
 /// スロットを表す色(PVW=緑, PGM=赤, Input=青)。
 pub fn slot_color(slot: Slot) -> Color32 {

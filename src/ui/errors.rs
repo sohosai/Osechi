@@ -13,7 +13,11 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
         .chunks
         .errors()
         .map(|(id, err)| (app.audio.name(id), err));
-    let errors: Vec<(&str, String)> = video.chain(audio).collect();
+    let mut errors: Vec<(String, String)> = video
+        .chain(audio)
+        .map(|(name, err)| (name.to_string(), err))
+        .collect();
+    errors.extend(app.ingest_errors());
     if errors.is_empty() {
         return;
     }

@@ -31,6 +31,8 @@ openh264 = "0.9.8"
 fdk-aac = "0.8.0"
 rml_rtmp = "0.8.0"
 bytes = "1"
+# NDIランタイムを実行時に読み込む
+libloading = "0.9"
 # 録画ファイル名に現地時刻を入れる
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 

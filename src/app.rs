@@ -15,7 +15,7 @@ use crate::config::Config;
 use crate::mixer::Mixer;
 use crate::output::{Taps, record, rtmp};
 use crate::source::audio::{self, aes67};
-use crate::source::{Catalog, Live, Origin, SourceId, video};
+use crate::source::{Catalog, Live, Origin, SourceId, ndi, rtmp as rtmp_ingest, video};
 use crate::switcher::{Slot, Switcher};
 use crate::ui;
 
@@ -52,11 +52,17 @@ pub struct App {
     pub taps: Taps,
     /// RTMP配信
     pub rtmp: rtmp::Rtmp,
+    /// RTMP入力サーバー
+    pub rtmp_ingest: Option<rtmp_ingest::Ingest>,
+    /// RTMP入力サーバーを起動できなかった理由
+    pub rtmp_ingest_error: Option<String>,
     /// 録画
     pub recorder: record::Recorder,
     pub ui: ui::State,
     /// SAPによるAES67フローの自動検出(SAPのポートが使えなければ無効)
     discovery: Option<aes67::Discovery>,
+    /// NDIソースの自動検出
+    ndi: ndi::Discovery,
     next_serial: u64,
 }
 
@@ -71,6 +77,17 @@ impl App {
             ui.rtmp.url = url;
         }
 
+        let (rtmp_ingest, rtmp_ingest_error) = match config.rtmp_ingest {
+            Some(addr) => match rtmp_ingest::Ingest::start(addr) {
+                Ok(ingest) => (Some(ingest), None),
+                Err(err) => {
+                    tracing::error!("{err:#}");
+                    (None, Some(format!("{err:#}")))
+                }
+            },
+            None => (None, None),
+        };
+
         let mut app = Self {
             video: Catalog::default(),
             audio: Catalog::default(),
@@ -82,9 +99,12 @@ impl App {
             mixer,
             taps,
             rtmp: rtmp::Rtmp::default(),
+            rtmp_ingest,
+            rtmp_ingest_error,
             recorder: record::Recorder::default(),
             ui,
             discovery: aes67::Discovery::start(),
+            ndi: ndi::Discovery::start(),
             next_serial: 0,
         };
         app.rescan();
@@ -119,6 +139,15 @@ impl App {
         if let Some(discovery) = &mut self.discovery {
             self.audio.sync(Origin::Discovered, discovery.sources());
         }
+        if let Some(ingest) = &self.rtmp_ingest {
+            self.video.sync(Origin::Rtmp, ingest.video_sources());
+            self.audio.sync(Origin::Rtmp, ingest.audio_sources());
+        }
+        let ndi = self.ndi.sources();
+        self.video
+            .sync(Origin::Ndi, ndi.iter().map(ndi::video_sources));
+        self.audio
+            .sync(Origin::Ndi, ndi.iter().map(ndi::audio_sources));
         self.frames.sync(&self.video, self.switcher.sources());
         self.chunks.sync(&self.audio, self.mixer.sources());
         self.collect_frames();
@@ -143,6 +172,23 @@ impl App {
                 self.latest.insert(id.clone(), latest);
             }
         }
+    }
+
+    /// 入力サーバーや検出の失敗。ソース一覧のエラー表示に使う。
+    pub fn ingest_errors(&self) -> Vec<(String, String)> {
+        let mut errors = Vec::new();
+        if let Some(err) = &self.rtmp_ingest_error {
+            errors.push(("RTMP input".to_string(), err.clone()));
+        }
+        if let Some(ingest) = &self.rtmp_ingest
+            && let Some(err) = ingest.error()
+        {
+            errors.push(("RTMP input".to_string(), err));
+        }
+        if let Some(err) = self.ndi.error() {
+            errors.push(("NDI input".to_string(), err));
+        }
+        errors
     }
 
     /// 最新フレームが変わったソースのテクスチャを更新する。UIスレッドから呼ぶ。
