@@ -13,6 +13,8 @@ source/
 ├── catalog.rs    Catalog(利用可能なソースの一覧)
 ├── live.rs       Live(いま開いているソースの集合)
 ├── feed.rs       Feed / Producer(取得スレッド → エンジンスレッドの経路)
+├── ndi.rs        NDI の検出・受信(映像と音声)
+├── rtmp.rs       RTMP 入力サーバー(映像と音声)
 └── video/
     ├── mod.rs      Frame, Kind, scan()
     ├── camera.rs   Webカメラ(nokhwa)
@@ -41,7 +43,9 @@ source/
 |---|---|---|
 | `Scanned` | デバイスのスキャンで見つかった | 再スキャンで見つからなかったとき |
 | `Manual` | ユーザーや起動設定が追加した | 明示的に削除したとき |
-| `Discovered` | SAP の告知で見つかった(音声のみ) | 告知が途絶えたとき |
+| `Discovered` | SAP の告知で見つかった(AES67音声) | 告知が途絶えたとき |
+| `Ndi` | NDI の検出で見つかった | 検出から消えたとき |
+| `Rtmp` | RTMP の配信が接続されている | 配信が切れたとき |
 
 ### `Source<K>`
 
@@ -118,12 +122,15 @@ pub type Frame = image::RgbImage;
 pub enum Kind {
     Camera(nokhwa::utils::CameraIndex), // Webカメラ
     Screen(u32),                        // 画面キャプチャ(モニターID)
+    Ndi(ndi::SourceRef),                // NDI ソース
+    Rtmp(rtmp::Stream),                 // RTMP の配信
 }
 ```
 
 ### `scan()`
 
 接続されている映像ソース(Webカメラ + モニター)を全て探し、`Origin::Scanned` の `Source` を返す。
+NDI と RTMP はデバイススキャンではなく、`App::tick` で検出結果を `Catalog::sync(Origin::Ndi / Origin::Rtmp, ..)` に渡して一覧を更新する。
 
 ## 各方式
 
@@ -131,6 +138,8 @@ pub enum Kind {
 |---|---|---|
 | Webカメラ | `camera.rs` | 専用スレッドで `nokhwa` から連続取得。1280x720 以上で最高解像度を要求する |
 | 画面キャプチャ | `screen.rs` | 専用スレッドで `xcap` からモニター全体を約15fps(66ms間隔)で取得 |
+| NDI | `ndi.rs` | NDI Runtime を実行時に読み込み、受信スレッドで RGBX/RGBA を RGB に変換する |
+| RTMP | `rtmp.rs` | RTMP サーバーで FLV を受け取り、H.264 を RGB にデコードする |
 
 `Feed` の容量は2(`FEED_CAPACITY`)。使うのは最新の1枚だけなので最小限にしている。
 
@@ -149,21 +158,37 @@ graph LR
     F -.-|"drop"| X["取得スレッド終了"]
 ```
 
-1. 起動時とソース一覧の **Rescan** で `video::scan()` を呼び、`Catalog::sync(Origin::Scanned, ..)` で一覧を更新する
+1. 起動時とソース一覧の **Rescan** で `video::scan()` を呼び、`Catalog::sync(Origin::Scanned, ..)` で一覧を更新する。NDI と RTMP は `App::tick` が検出結果を `Origin::Ndi` / `Origin::Rtmp` として同期する
 2. UI のソース一覧からマルチビューのスロットへドラッグすると、`Switcher` に `SourceId` が割り当てられる
 3. エンジンスレッドが 10ms ごとに `Live::sync(&catalog, switcher.sources())` を呼び、どこかのスロットに出ているソースだけを開く
 4. 同じくエンジンスレッドが、各ソースの最新フレームを `App::latest` に取っておく。各スロットに出ているフレームは配信・録画への受け渡し口(`output::Taps`)にも置く
 5. UI スレッドは描画のたびに、`latest` のうち変わったものだけを egui のテクスチャに上げる
 6. どのスロットからも外れたソースは `Live::sync` で `Feed` が drop され、取得スレッドが止まる
 
+## NDI / RTMP
+
+### NDI(`source/ndi.rs`)
+
+- NDI SDK にはビルド時にリンクせず、`libloading` で `Processing.NDI.Lib` を実行時に読み込む。NDI Runtime が無い環境では検出を諦め、警告ログを出して起動は継続する
+- `Discovery` がバックグラウンドで `NDIlib_find_*` を呼び、`Origin::Ndi` のソース一覧を作る
+- 映像は `NDIlib_recv_capture_v3` で RGBX/RGBA を受け取り、`Frame` にする
+- 音声は別のレシーバーを `audio only` で開き、FLTP(planar f32)を interleaved の `Chunk` にする
+- 受信スレッドは `Feed` が drop されると NDI レシーバーを破棄する
+
+### RTMP(`source/rtmp.rs`)
+
+- 起動時に `Ingest` が RTMP サーバーを立てる(`--rtmp-ingest`、既定 `0.0.0.0:1935`)
+- 接続ごとに `rml_rtmp` の `ServerSession` でハンドシェイク・publish を受け付ける
+- FLV の AVC パケットを `openh264` でデコードし、AAC パケットを `fdk-aac` で PCM にデコードする
+- NVENC が混ぜる SEI・filler・AUD はデコーダに渡す前に取り除き、OpenH264 の自動flushは無効化する
+- 配信キーごとに `Stream` を作り、映像は最新フレーム、音声は短いキューとして保持する。映像と音声は同じ `Stream` を共有する
+- 配信が切れると `Origin::Rtmp` のソースは一覧から消え、`Feed` は drop される
+
 ## 新しい映像ソースの追加方法
 
-例: NDI ソースを追加する場合
-
-1. `source/video/ndi.rs` を作り、次の2つを `pub(super)` で実装する
-   - `scan() -> Vec<Source<Kind>>`: `SourceId::new("ndi", ..)` で ID を付け、`Origin::Scanned` で返す(スキャンできない方式なら不要)
+1. `source/video/<方式>.rs` を作り、`scan()` と `open()` を実装する
+   - `scan() -> Vec<Source<Kind>>`: `SourceId::new("<方式>", ..)` で ID を付ける(スキャンできない方式なら不要)
    - `open(..) -> Result<Feed<Frame>>`: `Feed::spawn(FEED_CAPACITY, ..)` の中で取得し、`producer.send(..)` が `false` を返したら終了する
-2. `video/mod.rs` の `Kind` に `Ndi { .. }` バリアントを追加する
-3. `impl Open for Kind` の match に `Kind::Ndi` の分岐を追加する
-4. `video::scan()` に `ndi::scan()` を連結する
-5. `ui/widget.rs` の `Chip::video` に表示名(`NDI` など)を追加する
+2. `video/mod.rs` の `Kind` にバリアントを追加し、`impl Open for Kind` の match に分岐を追加する
+3. スキャンで見つかる方式なら `video::scan()` に連結する
+4. `ui/widget.rs` の `Chip::video` に表示名を追加する

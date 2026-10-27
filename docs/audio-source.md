@@ -8,12 +8,15 @@
 ## モジュール構成
 
 ```
-source/audio/
-├── mod.rs              Chunk, Kind, scan()
-├── device.rs           OSの音声入力デバイス(cpal)
-└── aes67/
-    ├── mod.rs          AES67 フローの受信(Config, Format, open)
-    └── discovery.rs    SAP による AES67 フローの自動検出(Discovery)
+source/
+├── ndi.rs              NDI の音声受信
+├── rtmp.rs             RTMP の音声デコード
+└── audio/
+    ├── mod.rs              Chunk, Kind, scan()
+    ├── device.rs           OSの音声入力デバイス(cpal)
+    └── aes67/
+        ├── mod.rs          AES67 フローの受信(Config, Format, open)
+        └── discovery.rs    SAP による AES67 フローの自動検出(Discovery)
 
 net/                    AES67 が使うプロトコル
 ├── multicast.rs        IPv4マルチキャスト受信ソケット
@@ -48,6 +51,8 @@ pub struct Chunk {
 pub enum Kind {
     Device(cpal::DeviceId), // OSの音声入力デバイス
     Aes67(aes67::Config),   // AES67のRTPマルチキャストフロー
+    Ndi(ndi::SourceRef),    // NDI ソースの音声
+    Rtmp(rtmp::Stream),     // RTMP の配信の音声
 }
 ```
 
@@ -55,6 +60,7 @@ pub enum Kind {
 
 接続されている音声入力デバイスを探し、`Origin::Scanned` の `Source` を返す。
 AES67 フローはスキャンでは見つからない(手動追加するか `Discovery` で見つける)。
+NDI と RTMP は `App::tick` で検出結果を `Catalog::sync(Origin::Ndi / Origin::Rtmp, ..)` に渡して一覧を更新する。
 
 ## 各方式
 
@@ -101,6 +107,20 @@ SAP(`224.2.127.254:9875`)の告知をバックグラウンドで受信し、い�
 - 削除の告知が来るか、5分間再告知が無ければそのフローを取り除く
 - SDP がマルチキャストでない・L16 / L24 以外・チャンネル数0のフローは無視する
 - 手動追加したフローと同じ宛先が告知されても、`Catalog::sync` の規則により手動追加の方が残る
+
+### NDI(`source/ndi.rs`)
+
+- NDI Runtime を実行時に読み込み、`Discovery` で見つかったソースを音声ソースとしても公開する
+- 音声用のレシーバーを `audio only` で開き、`NDIlib_recv_capture_v3` の `NDIlib_audio_frame_v3_t` を受け取る
+- NDI の FLTP(チャンネルごとの planar f32)を interleaved の `Chunk` に変換する
+- 映像と音声は別々のレシーバーになるため、同じ NDI ソースでも接続が2本になる
+
+### RTMP(`source/rtmp.rs`)
+
+- RTMP サーバーが受け取った FLV の AAC パケットを `fdk-aac` で PCM(i16)にデコードする
+- AudioSpecificConfig をシーケンスヘッダとして受け取り、以降の raw AAC フレームをデコードする
+- AAC-LC の planar 出力と、SBR 有効時の interleaved 出力の両方を判定して `Chunk` に揃える
+- 映像と同じ配信キーの `Stream` を共有し、音声キューは容量64で古いものから捨てる
 
 ## バッファ方針
 
