@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Memory::{
@@ -18,6 +18,8 @@ const FRAME_HEADER_BYTES: usize = 32;
 const SLOT_COUNT: usize = 3;
 const STATE_READY: u32 = 2;
 const STATE_STOPPING: u32 = 3;
+/// 新しいフレームが届かないままこの時間が過ぎたら、OBS側が終了したとみなす。
+const FRAME_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[repr(C)]
 struct QueueHeader {
@@ -128,9 +130,13 @@ fn is_available() -> bool {
 
 fn run(producer: Producer<Frame>) -> Result<()> {
     let mapping = Mapping::open()?;
-    let header = mapping.header();
     let mapped_len = mapping.len();
+    if mapped_len < std::mem::size_of::<QueueHeader>() {
+        return Err(Error::new("OBS Virtual Camera shared memory is too small"));
+    }
+    let header = mapping.header();
     let mut last = u32::MAX;
+    let mut last_frame = Instant::now();
     let mut warned = false;
 
     while producer.is_open() {
@@ -139,12 +145,18 @@ fn run(producer: Producer<Frame>) -> Result<()> {
             return Err(Error::new("OBS Virtual Camera stopped"));
         }
         if state != STATE_READY || header.queue_type != 0 {
+            if last_frame.elapsed() >= FRAME_TIMEOUT {
+                return Err(Error::new("OBS Virtual Camera stopped sending frames"));
+            }
             std::thread::sleep(Duration::from_millis(5));
             continue;
         }
 
         let index = header.read_idx.load(Ordering::Acquire);
         if index == last {
+            if last_frame.elapsed() >= FRAME_TIMEOUT {
+                return Err(Error::new("OBS Virtual Camera stopped sending frames"));
+            }
             std::thread::sleep(Duration::from_millis(5));
             continue;
         }
@@ -177,6 +189,7 @@ fn run(producer: Producer<Frame>) -> Result<()> {
                 return Ok(());
             }
             last = index;
+            last_frame = Instant::now();
         } else if !warned {
             tracing::warn!("failed to convert OBS Virtual Camera frame");
             warned = true;
