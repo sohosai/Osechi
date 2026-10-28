@@ -14,9 +14,10 @@ source/
 ├── live.rs       Live(いま開いているソースの集合)
 ├── feed.rs       Feed / Producer(取得スレッド → エンジンスレッドの経路)
 └── video/
-    ├── mod.rs      Frame, Kind, scan()
-    ├── camera.rs   Webカメラ(nokhwa)
-    └── screen.rs   画面キャプチャ(xcap)
+    ├── mod.rs          Frame, Kind, scan()
+    ├── camera.rs       Webカメラ(nokhwa)
+    ├── ccap_camera.rs  DirectShowのカメラ・仮想カメラ(Windowsのみ)
+    └── screen.rs       画面キャプチャ(xcap)
 ```
 
 ## 共通の型
@@ -29,6 +30,7 @@ source/
 |---|---|
 | Webカメラ | `camera:<表示名>_<index>` |
 | 画面キャプチャ | `screen:<モニターID>` |
+| DirectShow | `camera-ccap:<表示名>` |
 
 - `Display` を実装し、ログやテクスチャ名(`source:<id>`)に使う
 - `Clone`, `Hash`, `Eq` を実装しており、`HashMap` のキーとして利用可能
@@ -118,12 +120,14 @@ pub type Frame = image::RgbImage;
 pub enum Kind {
     Camera(nokhwa::utils::CameraIndex), // Webカメラ
     Screen(u32),                        // 画面キャプチャ(モニターID)
+    Ccap { name: String },              // DirectShowのカメラ・仮想カメラ(Windowsのみ)
 }
 ```
 
 ### `scan()`
 
-接続されている映像ソース(Webカメラ + モニター)を全て探し、`Origin::Scanned` の `Source` を返す。
+接続されている映像ソース(Webカメラ + モニター + WindowsではDirectShowデバイス)を全て探し、`Origin::Scanned` の `Source` を返す。
+WebカメラはMedia FoundationとDirectShowの両方で見つかることがあるため、表示名が同じDirectShowデバイスは追加しない。
 
 ## 各方式
 
@@ -131,6 +135,7 @@ pub enum Kind {
 |---|---|---|
 | Webカメラ | `camera.rs` | 専用スレッドで `nokhwa` から連続取得。1280x720 以上で最高解像度を要求する |
 | 画面キャプチャ | `screen.rs` | 専用スレッドで `xcap` からモニター全体を約15fps(66ms間隔)で取得 |
+| DirectShow | `ccap_camera.rs` | Windowsのみ。`ccap-rs` でDirectShowのカメラ・仮想カメラを開き、RGB24で受け取る |
 
 `Feed` の容量は2(`FEED_CAPACITY`)。使うのは最新の1枚だけなので最小限にしている。
 
@@ -155,6 +160,14 @@ graph LR
 4. 同じくエンジンスレッドが、各ソースの最新フレームを `App::latest` に取っておく。各スロットに出ているフレームは配信・録画への受け渡し口(`output::Taps`)にも置く
 5. UI スレッドは描画のたびに、`latest` のうち変わったものだけを egui のテクスチャに上げる
 6. どのスロットからも外れたソースは `Live::sync` で `Feed` が drop され、取得スレッドが止まる
+
+### DirectShow(`source/video/ccap_camera.rs`)
+
+- Windowsのみ有効。DirectShowのデバイス列挙・フィルタグラフ・RGB変換を `ccap-rs` に任せる
+- OBS Virtual CameraなどのDirectShow専用の仮想カメラを、ほぼ同じコードで扱える
+- `ccap-rs` はC++のソースをビルドするため、C++コンパイラとLLVM(libclang)が必要。`LIBCLANG_PATH` が通っていないとビルドできない
+- 1.6.0はMSVC向けヘッダが壊れているため、`=1.5.1` に固定している
+- 出力をRGB24に指定し、フレームの向き(`FrameOrientation`)に合わせて行をコピーする
 
 ## 新しい映像ソースの追加方法
 
