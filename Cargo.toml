@@ -34,6 +34,21 @@ bytes = "1"
 # 録画ファイル名に現地時刻を入れる
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 
+# Windowsの仮想カメラ(OBS Virtual Camera等)はDirectShowでしか公開されないため、
+# Media Foundationのnokhwaに加えてDirectShowでもデバイスを列挙・取得する。
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Media_DirectShow",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Ole",
+    "Win32_System_Variant",
+] }
+# `#[windows::core::interface]` が生成するコードが `::windows_core` を参照するため。
+windows-core = "0.62"
+
 # 開発ビルド: 依存クレートだけ最適化し、自分のクレートはビルド速度を優先する。
 # (開発ビルドのコード生成バックエンドの指定は nightly 専用なので .cargo/config.toml にある。
 #  このファイルは安定版のCargoでも読めるように保つ。)
