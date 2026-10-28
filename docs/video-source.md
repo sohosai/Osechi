@@ -14,9 +14,11 @@ source/
 ├── live.rs       Live(いま開いているソースの集合)
 ├── feed.rs       Feed / Producer(取得スレッド → エンジンスレッドの経路)
 └── video/
-    ├── mod.rs      Frame, Kind, scan()
-    ├── camera.rs   Webカメラ(nokhwa)
-    └── screen.rs   画面キャプチャ(xcap)
+    ├── mod.rs              Frame, Kind, scan()
+    ├── camera.rs           Webカメラ(nokhwa)
+    ├── convert.rs          NV12 → RGB24
+    ├── obs_virtual_cam.rs  OBS Virtual Camera(Windowsのみ)
+    └── screen.rs           画面キャプチャ(xcap)
 ```
 
 ## 共通の型
@@ -29,6 +31,7 @@ source/
 |---|---|
 | Webカメラ | `camera:<表示名>_<index>` |
 | 画面キャプチャ | `screen:<モニターID>` |
+| OBS Virtual Camera | `obs-virtualcam:default` |
 
 - `Display` を実装し、ログやテクスチャ名(`source:<id>`)に使う
 - `Clone`, `Hash`, `Eq` を実装しており、`HashMap` のキーとして利用可能
@@ -118,12 +121,14 @@ pub type Frame = image::RgbImage;
 pub enum Kind {
     Camera(nokhwa::utils::CameraIndex), // Webカメラ
     Screen(u32),                        // 画面キャプチャ(モニターID)
+    ObsVirtualCam,                      // OBS Virtual Camera(Windowsのみ)
 }
 ```
 
 ### `scan()`
 
-接続されている映像ソース(Webカメラ + モニター)を全て探し、`Origin::Scanned` の `Source` を返す。
+接続されている映像ソース(Webカメラ + モニター + WindowsではOBS Virtual Camera)を全て探し、`Origin::Scanned` の `Source` を返す。
+OBS Virtual Cameraは、OBS側で仮想カメラが開始され共有メモリが存在するときだけ一覧に現れる。
 
 ## 各方式
 
@@ -131,6 +136,7 @@ pub enum Kind {
 |---|---|---|
 | Webカメラ | `camera.rs` | 専用スレッドで `nokhwa` から連続取得。1280x720 以上で最高解像度を要求する |
 | 画面キャプチャ | `screen.rs` | 専用スレッドで `xcap` からモニター全体を約15fps(66ms間隔)で取得 |
+| OBS Virtual Camera | `obs_virtual_cam.rs` | Windowsのみ。OBSの共有メモリからNV12を読み取り、RGBに変換する |
 
 `Feed` の容量は2(`FEED_CAPACITY`)。使うのは最新の1枚だけなので最小限にしている。
 
@@ -155,6 +161,14 @@ graph LR
 4. 同じくエンジンスレッドが、各ソースの最新フレームを `App::latest` に取っておく。各スロットに出ているフレームは配信・録画への受け渡し口(`output::Taps`)にも置く
 5. UI スレッドは描画のたびに、`latest` のうち変わったものだけを egui のテクスチャに上げる
 6. どのスロットからも外れたソースは `Live::sync` で `Feed` が drop され、取得スレッドが止まる
+
+### OBS Virtual Camera(`source/video/obs_virtual_cam.rs`)
+
+- Windowsのみ有効。OBS Virtual Cameraが開始されていると `OBSVirtualCamVideo` という共有メモリが作られるので、それを直接読む
+- DirectShowのCOMやフィルタグラフを使わないぶん実装が小さい。OBS Virtual Camera専用で、vMixなどの他の仮想カメラは対象外
+- 共有メモリの先頭にキュー(書き込み位置・読み込み位置・状態・3枚のバッファ位置・解像度)があり、最新フレームのNV12をコピーしてRGBに変換する
+- 共有メモリのレイアウトはOBSの非公開仕様なので、OBS側の変更で動かなくなる可能性がある
+- OBS側で仮想カメラを停止すると共有メモリが消えるため、Rescanするとソース一覧から消える
 
 ## 新しい映像ソースの追加方法
 
