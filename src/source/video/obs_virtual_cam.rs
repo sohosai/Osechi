@@ -8,7 +8,7 @@ use windows::Win32::System::Memory::{
 };
 use windows::core::{HSTRING, PCWSTR};
 
-use super::convert;
+use super::convert::Nv12Converter;
 use super::{FEED_CAPACITY, Frame, Kind};
 use crate::error::{Context, Error, Result};
 use crate::source::{Feed, Origin, Producer, Source, SourceId};
@@ -140,6 +140,7 @@ fn run(producer: Producer<Frame>) -> Result<()> {
     let mut last = u32::MAX;
     let mut last_frame = Instant::now();
     let mut failures = 0u32;
+    let mut converter = Nv12Converter::new();
 
     while producer.is_open() {
         let state = header.state.load(Ordering::Acquire);
@@ -189,9 +190,7 @@ fn run(producer: Producer<Frame>) -> Result<()> {
         let data = unsafe {
             std::slice::from_raw_parts(mapping.bytes().add(offset + FRAME_HEADER_BYTES), size)
         };
-        let nv12 = data.to_vec();
-
-        match convert::nv12_to_rgb(&nv12, width, height) {
+        match converter.convert(data, width, height) {
             Some(frame) => {
                 if !producer.send(Ok(frame)) {
                     return Ok(());
