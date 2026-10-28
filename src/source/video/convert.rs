@@ -35,11 +35,18 @@ pub(super) fn nv12_to_rgb(data: &[u8], width: u32, height: u32) -> Option<Frame>
     RgbImage::from_raw(width, height, rgb)
 }
 
+/// BT.709・リミテッドレンジ(16-235)のYUVをフルレンジRGBに変換する。
+/// 係数は 256 倍の整数。
 fn yuv_to_rgb(y: i32, u: i32, v: i32) -> (u8, u8, u8) {
-    let r = ((y * 256 + 359 * v) >> 8).clamp(0, 255) as u8;
-    let g = ((y * 256 - 88 * u - 183 * v) >> 8).clamp(0, 255) as u8;
-    let b = ((y * 256 + 454 * u) >> 8).clamp(0, 255) as u8;
-    (r, g, b)
+    let c = y - 16;
+    let r = (298 * c + 459 * v + 128) >> 8;
+    let g = (298 * c - 55 * u - 136 * v + 128) >> 8;
+    let b = (298 * c + 541 * u + 128) >> 8;
+    (clamp(r), clamp(g), clamp(b))
+}
+
+fn clamp(value: i32) -> u8 {
+    value.clamp(0, 255) as u8
 }
 
 #[cfg(test)]
@@ -47,14 +54,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn converts_black_and_white() {
-        let black = [0, 0, 0, 0, 128, 128];
+    fn converts_limited_range_black_and_white() {
+        let black = [16, 16, 16, 16, 128, 128];
         let rgb = nv12_to_rgb(&black, 2, 2).unwrap();
         assert_eq!(rgb.as_raw(), &[0; 12]);
 
-        let white = [255, 255, 255, 255, 128, 128];
+        let white = [235, 235, 235, 235, 128, 128];
         let rgb = nv12_to_rgb(&white, 2, 2).unwrap();
         assert_eq!(rgb.as_raw(), &[255; 12]);
+    }
+
+    #[test]
+    fn converts_bt709_primary_colors() {
+        // output/convert.rs が RGB(255, 0, 0) から作る BT.709 リミテッドレンジの値
+        let red = [63, 63, 63, 63, 102, 240];
+        let rgb = nv12_to_rgb(&red, 2, 2).unwrap();
+        for pixel in rgb.pixels() {
+            assert!(pixel[0] > 250, "red: {pixel:?}");
+            assert!(pixel[1] < 5, "green: {pixel:?}");
+            assert!(pixel[2] < 5, "blue: {pixel:?}");
+        }
     }
 
     #[test]
