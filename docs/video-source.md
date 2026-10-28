@@ -14,9 +14,11 @@ source/
 ├── live.rs       Live(いま開いているソースの集合)
 ├── feed.rs       Feed / Producer(取得スレッド → エンジンスレッドの経路)
 └── video/
-    ├── mod.rs      Frame, Kind, scan()
-    ├── camera.rs   Webカメラ(nokhwa)
-    └── screen.rs   画面キャプチャ(xcap)
+    ├── mod.rs        Frame, Kind, scan()
+    ├── camera.rs     Webカメラ(nokhwa / Media Foundation)
+    ├── convert.rs    BGR24・YUY2・NV12 → RGB24
+    ├── directshow.rs DirectShowの仮想カメラなど(Windowsのみ)
+    └── screen.rs     画面キャプチャ(xcap)
 ```
 
 ## 共通の型
@@ -29,6 +31,7 @@ source/
 |---|---|
 | Webカメラ | `camera:<表示名>_<index>` |
 | 画面キャプチャ | `screen:<モニターID>` |
+| DirectShow | `camera-dshow:<DevicePathまたは表示名>` |
 
 - `Display` を実装し、ログやテクスチャ名(`source:<id>`)に使う
 - `Clone`, `Hash`, `Eq` を実装しており、`HashMap` のキーとして利用可能
@@ -118,12 +121,17 @@ pub type Frame = image::RgbImage;
 pub enum Kind {
     Camera(nokhwa::utils::CameraIndex), // Webカメラ
     Screen(u32),                        // 画面キャプチャ(モニターID)
+    DirectShow {                        // DirectShowの映像デバイス(Windowsのみ)
+        friendly_name: String,
+        device_path: String,
+    },
 }
 ```
 
 ### `scan()`
 
-接続されている映像ソース(Webカメラ + モニター)を全て探し、`Origin::Scanned` の `Source` を返す。
+接続されている映像ソース(Webカメラ + モニター + WindowsではDirectShowデバイス)を全て探し、`Origin::Scanned` の `Source` を返す。
+WebカメラはMedia FoundationとDirectShowの両方で見つかることがあるため、表示名が同じDirectShowデバイスは追加しない。
 
 ## 各方式
 
@@ -131,6 +139,7 @@ pub enum Kind {
 |---|---|---|
 | Webカメラ | `camera.rs` | 専用スレッドで `nokhwa` から連続取得。1280x720 以上で最高解像度を要求する |
 | 画面キャプチャ | `screen.rs` | 専用スレッドで `xcap` からモニター全体を約15fps(66ms間隔)で取得 |
+| DirectShow | `directshow.rs` | Windowsのみ。SampleGrabberのコールバックでRGB24/YUY2/NV12を受け取り、RGBに変換する |
 
 `Feed` の容量は2(`FEED_CAPACITY`)。使うのは最新の1枚だけなので最小限にしている。
 
@@ -155,6 +164,14 @@ graph LR
 4. 同じくエンジンスレッドが、各ソースの最新フレームを `App::latest` に取っておく。各スロットに出ているフレームは配信・録画への受け渡し口(`output::Taps`)にも置く
 5. UI スレッドは描画のたびに、`latest` のうち変わったものだけを egui のテクスチャに上げる
 6. どのスロットからも外れたソースは `Live::sync` で `Feed` が drop され、取得スレッドが止まる
+
+### DirectShow(`source/video/directshow.rs`)
+
+- Windowsのみ有効。`nokhwa` はMedia Foundationしか列挙しないため、DirectShow専用の仮想カメラ(OBS Virtual Cameraなど)はここで拾う
+- `ICreateDevEnum` で `CLSID_VideoInputDeviceCategory` を列挙し、`FriendlyName` と `DevicePath` を読む。OBSのように `DevicePath` が空のデバイスは表示名で開き直す
+- 取得は `Source → SampleGrabber → NullRenderer` のフィルタグラフ。フレームは `ISampleGrabberCB::BufferCB` で受け取る
+- OBS Virtual CameraはRGB24に対応したふりをするため、NV12を明示要求する。また参照クロックを外さないと1フレームで止まることがあるため、OBSでは `IMediaFilter::SetSyncSource(None)` にする
+- OBS以外はRGB24を要求し、接続できなければ任意subtypeへフォールバックする。コールバックはRGB24(BGR順・上下反転あり/なし)・YUY2・NV12をRGBに変換する
 
 ## 新しい映像ソースの追加方法
 
