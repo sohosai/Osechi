@@ -20,6 +20,8 @@ const STATE_READY: u32 = 2;
 const STATE_STOPPING: u32 = 3;
 /// 新しいフレームが届かないままこの時間が過ぎたら、OBS側が終了したとみなす。
 const FRAME_TIMEOUT: Duration = Duration::from_secs(2);
+/// 不正なフレームがこの回数続いたら、取得を諦めてエラーにする。
+const MAX_CONSECUTIVE_FAILURES: u32 = 30;
 
 #[repr(C)]
 struct QueueHeader {
@@ -137,7 +139,7 @@ fn run(producer: Producer<Frame>) -> Result<()> {
     let header = mapping.header();
     let mut last = u32::MAX;
     let mut last_frame = Instant::now();
-    let mut warned = false;
+    let mut failures = 0u32;
 
     while producer.is_open() {
         let state = header.state.load(Ordering::Acquire);
@@ -164,9 +166,14 @@ fn run(producer: Producer<Frame>) -> Result<()> {
         let width = header.cx;
         let height = header.cy;
         let Some(size) = frame_size(width, height) else {
-            if !warned {
+            failures += 1;
+            if failures == 1 {
                 tracing::warn!("OBS Virtual Camera returned invalid size: {width}x{height}");
-                warned = true;
+            }
+            if failures >= MAX_CONSECUTIVE_FAILURES {
+                return Err(Error::new(format!(
+                    "OBS Virtual Camera kept returning invalid size: {width}x{height}"
+                )));
             }
             std::thread::sleep(Duration::from_millis(5));
             continue;
@@ -184,15 +191,25 @@ fn run(producer: Producer<Frame>) -> Result<()> {
         };
         let nv12 = data.to_vec();
 
-        if let Some(frame) = convert::nv12_to_rgb(&nv12, width, height) {
-            if !producer.send(Ok(frame)) {
-                return Ok(());
+        match convert::nv12_to_rgb(&nv12, width, height) {
+            Some(frame) => {
+                if !producer.send(Ok(frame)) {
+                    return Ok(());
+                }
+                last = index;
+                last_frame = Instant::now();
+                failures = 0;
             }
-            last = index;
-            last_frame = Instant::now();
-        } else if !warned {
-            tracing::warn!("failed to convert OBS Virtual Camera frame");
-            warned = true;
+            None => {
+                failures += 1;
+                if failures == 1 {
+                    tracing::warn!("failed to convert OBS Virtual Camera frame");
+                }
+                if failures >= MAX_CONSECUTIVE_FAILURES {
+                    return Err(Error::new("failed to convert OBS Virtual Camera frames"));
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
         }
     }
 
