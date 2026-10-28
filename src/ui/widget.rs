@@ -22,6 +22,8 @@ impl Chip {
         let text = match kind {
             video::Kind::Camera(_) => "CAM",
             video::Kind::Screen(_) => "SCR",
+            #[cfg(windows)]
+            video::Kind::ObsVirtualCam => "CAM",
         };
         Self {
             text,

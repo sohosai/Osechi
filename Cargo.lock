@@ -3958,6 +3958,7 @@ dependencies = [
  "tracing-subscriber",
  "utoipa",
  "utoipa-swagger-ui",
+ "windows 0.62.2",
  "xcap",
 ]
 
